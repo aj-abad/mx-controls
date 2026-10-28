@@ -1,0 +1,35 @@
+{
+  "name": "mx-controls-desktop",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "nuxt dev --host 127.0.0.1 --port 3000",
+    "generate": "nuxt generate",
+    "agent": "node scripts/build-agent.mjs",
+    "tauri": "tauri",
+    "app": "pnpm agent && tauri dev",
+    "build": "tauri build",
+    "postinstall": "nuxt prepare",
+    "typecheck": "nuxt typecheck",
+    "lint:design": "sine lint"
+  },
+  "dependencies": {
+    "@arcon.mobi/sine": "^0.16.6",
+    "@tauri-apps/api": "^2.12.4",
+    "nuxt": "^4.6.3",
+    "reka-ui": "^2.11.0",
+    "tailwindcss": "^4.3.3",
+    "vue": "^3.5.44",
+    "vue-router": "^5.4.0"
+  },
+  "devDependencies": {
+    "@arcon.mobi/sine-icons": "^0.1.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tauri-apps/cli": "^2.12.4",
+    "typescript": "^5.9.3",
+    "vue-tsc": "^3.3.13"
+  }
+}

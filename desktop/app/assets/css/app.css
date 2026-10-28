@@ -1,0 +1,13 @@
+@import "tailwindcss";
+@import "@arcon.mobi/sine/css";
+
+html,
+body,
+#__nuxt {
+  height: 100%;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+}
