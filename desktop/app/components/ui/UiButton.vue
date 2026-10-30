@@ -25,7 +25,7 @@ const {
 }>();
 
 const VARIANTS = {
-  primary: "bg-ink text-white enabled:hover:bg-ink-2",
+  primary: "bg-ink text-on-ink enabled:hover:bg-ink-2",
   secondary: "bg-field text-ink ring-1 ring-line ring-inset enabled:hover:bg-fill",
   ghost: "text-ink-2 enabled:hover:bg-fill",
 };

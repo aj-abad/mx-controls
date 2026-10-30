@@ -13,11 +13,11 @@
       class="flex h-16 min-w-0 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-xl px-1.5 ring-inset transition-[background-color,box-shadow,color]"
       :class="[
         AREAS[part.id],
-        selected === part.id ? 'bg-ink text-white ring-0' : 'bg-field ring-1 ring-line hover:ring-fill-strong',
+        selected === part.id ? 'bg-ink text-on-ink ring-0' : 'bg-field ring-1 ring-line hover:ring-fill-strong',
         flashed === part.id && 'ring-2! ring-accent!',
       ]"
       @click="selected = part.id">
-      <span class="text-sm leading-4 font-medium" :class="selected === part.id ? 'text-white/70' : 'text-ink-3'" aria-hidden="true">
+      <span class="text-sm leading-4 font-medium" :class="selected === part.id ? 'text-on-ink/70' : 'text-ink-3'" aria-hidden="true">
         {{ part.glyph }}
       </span>
       <span

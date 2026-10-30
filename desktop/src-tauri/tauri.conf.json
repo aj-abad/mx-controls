@@ -20,9 +20,12 @@
         "resizable": false,
         "maximizable": false,
         "decorations": false,
-        "shadow": true
+        "shadow": true,
+        "transparent": true,
+        "windowEffects": { "effects": ["acrylic"] }
       }
     ],
+    "macOSPrivateApi": true,
     "security": {
       "csp": null
     }

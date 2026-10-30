@@ -19,6 +19,9 @@ provide("weight", "bold");
 
 useWindowDrag();
 
+// The window is see-through over the system's backdrop; app.css makes the page's surfaces see-through to match.
+if ("__TAURI_INTERNALS__" in window) document.documentElement.dataset.glass = "";
+
 // The webview's own menu (Reload, Inspect) would read as a web page's. Fields keep theirs for cut, copy and
 // paste, and a dev build keeps it everywhere for the inspector.
 function blockNativeMenu(event: MouseEvent) {

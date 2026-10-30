@@ -17,7 +17,7 @@
             class="flex h-8 shrink-0 items-center gap-1.5 rounded-full transition-colors duration-150"
             :class="
               profile.id === activeId
-                ? 'max-w-48 bg-ink pr-3.5 pl-2 text-white'
+                ? 'max-w-48 bg-ink pr-3.5 pl-2 text-on-ink'
                 : 'w-8 justify-center text-ink-2 hover:bg-fill hover:text-ink data-[state=open]:bg-fill'
             "
             @click="choose(profile)"

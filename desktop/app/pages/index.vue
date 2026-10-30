@@ -7,7 +7,7 @@
       :frame="frame"
       :pulse="pulse"
       :menu="(id) => menuFor(items.find((item) => item.control.id === id)!)"
-      @select="(id) => (selectedId = id)"
+      @select="open"
       @hover="(id) => (hoveredId = id)" />
 
     <!-- Opening a control pushes the list off to the left and brings its settings in from the right, while the
@@ -56,7 +56,18 @@
                   'opacity-0'
                 " />
               <UiContextMenu :items="menuFor(item)">
+                <!-- Pointer speed is one slider, so it's set right in its row rather than in a panel of its own. -->
+                <div
+                  v-if="item.control.id === 'sensor'"
+                  id="sensor-row"
+                  class="flex size-full items-center rounded-xl pr-2.5 pl-3"
+                  :class="hoveredId === item.control.id && 'bg-fill'"
+                  @pointerenter="hoveredId = item.control.id"
+                  @pointerleave="hoveredId = null">
+                  <SensorSettings class="w-full" :device="device" />
+                </div>
                 <button
+                  v-else
                   type="button"
                   class="group relative flex size-full cursor-pointer items-center gap-2 rounded-xl pr-2.5 pl-3 text-left active:bg-fill-strong/60"
                   :class="hoveredId === item.control.id && 'bg-fill'"
@@ -119,7 +130,6 @@
         <div class="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 pb-6">
           <WheelSettings v-if="selected.control.id === 'wheel'" :device="device" />
           <ThumbWheelSettings v-else-if="selected.control.id === 'thumbwheel'" :device="device" />
-          <SensorSettings v-else-if="selected.control.id === 'sensor'" :device="device" />
           <template v-else-if="selected.button">
             <ButtonEditor
               :button="selected.button"
@@ -229,7 +239,7 @@ const present = computed(() => {
         {
           control,
           button,
-          label: "Sensor",
+          label: "Pointer speed",
           summary: `${current} DPI`,
           customized: current !== standard,
           shared: false,
@@ -286,7 +296,7 @@ watch(
 onBeforeUnmount(() => focusing?.stop());
 
 // Each says what the control is; what it does by default is said by its settings.
-const DESCRIPTIONS: Record<ControlId, string> = {
+const DESCRIPTIONS: Partial<Record<ControlId, string>> = {
   wheel: "How the main wheel feels as you scroll.",
   thumbwheel: "The wheel under your thumb. It scrolls sideways, or runs an action each notch.",
   middle: "Pressing the scroll wheel straight down.",
@@ -296,9 +306,15 @@ const DESCRIPTIONS: Record<ControlId, string> = {
   forward: "The front thumb button.",
   gesture: "The button in the thumb rest.",
   haptic: "The panel under your thumb. It clicks with a haptic tap rather than a switch.",
-  sensor:
-    "How far the pointer moves as you move the mouse. Saved on the mouse, so it follows it to other computers.",
 };
+
+/** The sensor has no panel; its dot goes to the slider in its row instead. */
+function open(id: ControlId) {
+  if (id !== "sensor") return void (selectedId.value = id);
+  selectedId.value = null;
+  // With a control open, the list only comes back on the next render.
+  void nextTick(() => document.querySelector<HTMLElement>("#sensor-row [role=slider]")?.focus());
+}
 
 function wheelSummary() {
   const shift = device.value!.smartShift;
@@ -332,11 +348,25 @@ function describe(button: ButtonState) {
   return MOUSE_BUTTONS[button.id] ?? "Default";
 }
 
+const isMac = navigator.userAgent.includes("Mac");
+
 // Escape closes the panel, unless it's closing a menu or popover first; those are still in the page when it arrives.
+// Ctrl+Z puts back the last change, except in a field, where it undoes typing.
 function onKey(event: KeyboardEvent) {
-  if (event.key !== "Escape" || !selectedId.value || event.defaultPrevented) return;
-  if (!document.querySelector("[data-dismissable-layer]")) selectedId.value = null;
+  if (event.defaultPrevented) return;
+  if (event.key === "Escape" && selectedId.value) {
+    if (!document.querySelector("[data-dismissable-layer]")) selectedId.value = null;
+    return;
+  }
+  const command = isMac ? event.metaKey : event.ctrlKey;
+  if (event.code !== "KeyZ" || !command || event.shiftKey || event.altKey) return;
+  if ((event.target as HTMLElement | null)?.closest("input, textarea, [contenteditable]")) return;
+  event.preventDefault();
+  void undoLast();
 }
+
+// The changes remembered belong to one profile on one mouse; putting them back elsewhere would change the wrong one.
+watch(() => [state.value?.activeProfile, device.value?.productId], forgetUndo);
 onMounted(() => window.addEventListener("keydown", onKey));
 onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 
@@ -397,7 +427,7 @@ onBeforeUnmount(() => clearTimeout(clearFlash));
 
 type Item = (typeof items.value)[number];
 
-/** Puts a control back to its default; the toast can put back what it was. */
+/** Puts a control back to its default; Ctrl+Z puts back what it was. */
 function reset(item: Item) {
   const mouse = device.value!;
   if (item.button) return apply(null, item);
@@ -427,26 +457,24 @@ async function resetWith(
   before: Record<string, unknown>,
 ) {
   if (!(await attempt(method, params, `Couldn't reset the ${label.toLowerCase()}`))) return;
-  showToast(`${label} reset to default`, "neutral", {
-    key: method,
-    action: {
-      label: "Undo",
-      run: () => void attempt(method, before, `Couldn't put the ${label.toLowerCase()} back`),
-    },
-  });
+  rememberUndo(() => attempt(method, before, `Couldn't put the ${label.toLowerCase()} back`));
 }
 
 function menuFor(item: Item): MenuEntry[] {
   const open = item.control.id === selectedId.value;
   return [
-    open
-      ? { label: "All controls", icon: PhArrowLeft, select: () => (selectedId.value = null) }
-      : {
-          label: "Open settings",
-          icon: PhSlidersHorizontal,
-          select: () => (selectedId.value = item.control.id),
-        },
-    "separator",
+    ...(item.control.id === "sensor"
+      ? []
+      : [
+          open
+            ? { label: "All controls", icon: PhArrowLeft, select: () => (selectedId.value = null) }
+            : {
+                label: "Open settings",
+                icon: PhSlidersHorizontal,
+                select: () => (selectedId.value = item.control.id),
+              },
+          "separator" as const,
+        ]),
     {
       label: "Reset to default",
       icon: PhArrowCounterClockwise,
@@ -463,15 +491,12 @@ function setBinding(button: string, binding: ButtonBinding | null) {
   return attempt("setBindings", { bindings: next }, "Couldn't change the button");
 }
 
-// Changes apply as they're made; the toast says what the button does now and can put back what it did.
+// Changes apply as they're made; Ctrl+Z puts back what the button did.
 async function apply(binding: ButtonBinding | null, item: Item = selected.value!) {
-  const { label, button } = item;
+  const { button } = item;
   const before = bindingFor(button!.id) ?? null;
   if (!(await setBinding(button!.id, binding))) return false;
-  showToast(`${label}: ${describe(button!)}${binding ? "" : " (default)"}`, "neutral", {
-    key: button!.id,
-    action: { label: "Undo", run: () => void setBinding(button!.id, before) },
-  });
+  rememberUndo(() => setBinding(button!.id, before));
   return true;
 }
 </script>

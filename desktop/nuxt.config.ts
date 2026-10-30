@@ -23,7 +23,7 @@ export default defineNuxtConfig({
       title: "MX Controls",
       meta: [
         { name: "viewport", content: "width=device-width, initial-scale=1" },
-        { name: "color-scheme", content: "light" },
+        { name: "color-scheme", content: "light dark" },
       ],
     },
   },

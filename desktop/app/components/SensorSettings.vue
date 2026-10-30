@@ -1,15 +1,14 @@
 <template>
-  <div class="flex flex-col gap-6">
-    <UiSlider
-      v-model="dpi"
-      label="Pointer speed"
-      :default-value="device.dpi.default"
-      :min="device.dpi.min"
-      :max="device.dpi.max"
-      :step="device.dpi.step"
-      :format="(value) => `${value} DPI`"
-      @commit="(value) => attempt('setDpi', { dpi: value }, 'Couldn\'t change the pointer speed')" />
-  </div>
+  <UiSlider
+    v-model="dpi"
+    inline
+    label="Speed"
+    :default-value="device.dpi.default"
+    :min="device.dpi.min"
+    :max="device.dpi.max"
+    :step="device.dpi.step"
+    :format="(value) => `${value} DPI`"
+    @commit="(value) => attempt('setDpi', { dpi: value }, 'Couldn\'t change the pointer speed')" />
 </template>
 
 <script setup lang="ts">

@@ -10,7 +10,9 @@
         "resizable": false,
         "maximizable": false,
         "titleBarStyle": "Overlay",
-        "hiddenTitle": true
+        "hiddenTitle": true,
+        "transparent": true,
+        "windowEffects": { "effects": ["liquidGlassRegular", "sidebar"] }
       }
     ]
   }

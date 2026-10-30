@@ -7,7 +7,7 @@
       <TooltipContent
         side="bottom"
         :side-offset="6"
-        class="z-50 rounded-md bg-ink px-2 py-1 text-xs font-medium text-white data-[state=closed]:animate-menu-out data-[state=delayed-open]:animate-menu-in">
+        class="z-50 rounded-md bg-ink px-2 py-1 text-xs font-medium text-on-ink data-[state=closed]:animate-menu-out data-[state=delayed-open]:animate-menu-in">
         {{ text }}
       </TooltipContent>
     </TooltipPortal>

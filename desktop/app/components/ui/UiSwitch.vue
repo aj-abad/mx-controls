@@ -6,7 +6,8 @@
     class="relative inline-flex h-6 w-10 shrink-0 items-center rounded-full bg-fill-strong transition-colors data-[state=checked]:bg-ink">
     <SwitchThumb as-child>
       <motion.span
-        class="block size-5 rounded-full bg-white shadow-sm"
+        class="block size-5 rounded-full shadow-sm"
+        :class="checked ? 'bg-on-ink' : 'bg-white'"
         :initial="false"
         :animate="{ x: checked ? 18 : 2 }"
         :transition="FAST" />

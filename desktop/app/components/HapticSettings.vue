@@ -35,7 +35,7 @@
           :disabled="!device.haptics.enabled"
           class="flex items-center gap-2.5 rounded-xl bg-field px-3 py-2.5 text-left text-sm hover:bg-fill disabled:opacity-40"
           @click="attempt('playHaptic', { waveform }, 'Couldn\'t play the effect')">
-          <span class="grid size-7 shrink-0 place-items-center rounded-full bg-ink text-white">
+          <span class="grid size-7 shrink-0 place-items-center rounded-full bg-ink text-on-ink">
             <PhPlay weight="fill" class="size-3" />
           </span>
           {{ humanize(waveform) }}

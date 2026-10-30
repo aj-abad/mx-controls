@@ -21,7 +21,7 @@
           :aria-label="choice ? choice.replaceAll('-', ' ') : 'Initial'"
           :aria-pressed="profile.icon === choice"
           class="grid size-9 place-items-center rounded-lg transition-colors duration-150"
-          :class="profile.icon === choice ? 'bg-ink text-white' : 'text-ink-2 hover:bg-fill hover:text-ink'"
+          :class="profile.icon === choice ? 'bg-ink text-on-ink' : 'text-ink-2 hover:bg-fill hover:text-ink'"
           @click="setIcon(choice)">
           <ProfileAvatar :profile="{ name: name || profile.name, icon: choice }" class="size-5" />
         </button>

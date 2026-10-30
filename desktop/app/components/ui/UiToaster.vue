@@ -4,7 +4,7 @@
       v-for="toast in toasts"
       :key="toast.id"
       class="flex items-center gap-3 rounded-xl px-4 py-3 text-sm shadow-lg data-[state=closed]:animate-toast-out data-[state=open]:animate-toast-in"
-      :class="toast.tone === 'error' ? 'bg-ink text-white' : 'bg-field text-ink ring-1 ring-line'"
+      :class="toast.tone === 'error' ? 'bg-ink text-on-ink' : 'bg-field text-ink ring-1 ring-line'"
       @update:open="(open) => !open && settle(toast.id)">
       <span v-if="toast.tone === 'error'" class="size-2 shrink-0 rounded-full bg-[#ff5a4f]" aria-hidden="true" />
       <ToastTitle class="min-w-0 flex-1">{{ toast.title }}</ToastTitle>

@@ -1,7 +1,7 @@
 <template>
   <span
     class="grid shrink-0 place-items-center rounded-full font-semibold tabular-nums"
-    :class="current ? 'bg-ink text-white' : 'bg-fill-strong text-ink-2'">
+    :class="current ? 'bg-ink text-on-ink' : 'bg-fill-strong text-ink-2'">
     {{ index + 1 }}
   </span>
 </template>

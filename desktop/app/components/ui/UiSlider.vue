@@ -1,11 +1,20 @@
 <template>
-  <div class="flex flex-col gap-3">
-    <div class="flex items-baseline justify-between gap-4">
-      <span :id="labelId" class="font-medium">{{ label }}</span>
-      <span class="text-sm tabular-nums text-ink-2">{{ format ? format(value) : value }}</span>
+  <div :class="inline ? 'flex items-center gap-3' : 'flex flex-col gap-3'">
+    <!-- Inline, the label and value flank the track on one line, so a list row can hold the slider. -->
+    <div :class="inline ? 'contents' : 'flex items-baseline justify-between gap-4'">
+      <span
+        :id="labelId"
+        :class="inline ? 'order-first shrink-0 text-sm font-medium' : 'font-medium'">
+        {{ label }}
+      </span>
+      <span
+        class="tabular-nums"
+        :class="inline ? 'order-last w-16 shrink-0 text-right text-[13px] text-ink-2' : 'text-sm text-ink-2'">
+        {{ format ? format(value) : value }}
+      </span>
     </div>
     <!-- The default is marked on the track, so the copy around the slider doesn't have to state it. -->
-    <div class="relative" :class="defaultValue !== undefined && 'pb-4'">
+    <div class="relative" :class="inline ? 'grow' : defaultValue !== undefined && 'pb-4'">
       <SliderRoot
         :model-value="[value]"
         :min="min"
@@ -50,6 +59,8 @@ const {
   /** Marked on the track, and read out as "default" when the slider sits on it. */
   defaultValue?: number;
   format?: (value: number) => string;
+  /** Label, track and value on one line. */
+  inline?: boolean;
 }>();
 const value = defineModel<number>({ required: true });
 /** The value once a drag or key press ends; save here rather than on every move. */

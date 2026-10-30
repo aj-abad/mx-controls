@@ -34,7 +34,7 @@
     <g
       v-for="dot in dots"
       :key="dot.id"
-      class="transition-opacity duration-150 ease-out [&>*]:origin-center [&>*]:[transform-box:fill-box]"
+      class="on-photo transition-opacity duration-150 ease-out [&>*]:origin-center [&>*]:[transform-box:fill-box]"
       :class="selected && dot.id !== selected && dot.id !== active && 'opacity-50'">
       <!-- Pressing the control on the mouse sends a ring out from its dot, so you can find it by pressing it. -->
       <motion.circle

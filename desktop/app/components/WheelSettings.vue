@@ -3,7 +3,11 @@
     <SettingRow
       label="SmartShift"
       label-for="ratchet"
-      description="Clicks notch by notch, and spins freely when you scroll fast. Off, it always spins freely.">
+      :description="
+        ratchet
+          ? 'Scrolling is detented, switching to free-spin when you scroll fast.'
+          : 'Scrolling is always free-spinning.'
+      ">
       <UiSwitch id="ratchet" v-model="ratchet" @update:model-value="save" />
     </SettingRow>
     <template v-if="ratchet">
