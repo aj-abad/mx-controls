@@ -2,12 +2,13 @@ using MxControls;
 using MxControls.Features;
 using MxControls.Hidpp;
 using MxControls.Input;
-using MxControls.Remap;
+using MxControls.Actions;
 
 const string Usage = """
     Usage:
       mx info                                  Feature table, firmware, buttons and settings (read-only)
       mx listen [seconds] [--all]              Log diverted button presses; --all diverts every button meanwhile
+      mx gestures [seconds] [--trace <file>]   Log gesture button swipes and what they'd fire; --trace saves them as JSON lines
       mx haptic <waveform>                     Play a haptic waveform, such as Completed or Knock
       mx hold <button>=<key> ... [--seconds N] Hold keyboard keys while mouse buttons are held
 
@@ -31,6 +32,7 @@ try
     {
         "info" => await Info(mx),
         "listen" => await Listen(mx, args.Skip(1).Where(a => a != "--all").Select(double.Parse).FirstOrDefault(30), args.Contains("--all")),
+        "gestures" => await Gestures(mx, args[1..]),
         "haptic" when args.Length == 2 => await Haptic(mx, args[1]),
         "hold" when args.Length > 1 => await Hold(mx, platform, args[1..]),
         _ => Fail(Usage),
@@ -78,6 +80,13 @@ static async Task<int> Info(MxDevice mx)
     var thumb = await mx.Wheels.GetThumbWheelAsync();
     Console.WriteLine($"  Thumb wheel  {(thumb.Diverted ? "diverted" : "native")}{(thumb.Inverted ? ", inverted" : "")}"
         + $" ({thumb.NativeResolution} native / {thumb.DivertedResolution} diverted counts per turn)");
+    if (mx.Hosts.Supported)
+    {
+        var hosts = await mx.Hosts.GetAsync();
+        foreach (var channel in hosts.Channels)
+            Console.WriteLine($"  Channel {channel.Index + 1}    {(channel.Paired ? channel.Name is "" ? "paired" : channel.Name : "empty")}"
+                + (channel.Index == hosts.Current ? " (this computer)" : ""));
+    }
     var haptic = await mx.Haptics.GetLevelAsync();
     Console.WriteLine($"  Haptics      {(haptic.Enabled ? $"level {haptic.Level}" : "off")}, {(await mx.Haptics.GetWaveformsAsync()).Count} waveforms");
     foreach (var b in await mx.Haptics.GetForceButtonsAsync())
@@ -137,6 +146,82 @@ static async Task LogPresses(MxDevice mx, double seconds, bool divertAll)
     await Task.Delay(TimeSpan.FromSeconds(seconds));
 }
 
+static async Task<int> Gestures(MxDevice mx, string[] args)
+{
+    double seconds = 60;
+    string? tracePath = null;
+    for (int i = 0; i < args.Length; i++)
+    {
+        if (args[i] == "--trace" && i + 1 < args.Length)
+            tracePath = args[++i];
+        else if (double.TryParse(args[i], out var s))
+            seconds = s;
+        else
+            return Fail(Usage);
+    }
+
+    // The trace is JSON whatever the locale's decimal separator.
+    System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
+    ushort gesture = ReprogControls.KnownButtons["gesture"];
+    int dpi = (await mx.Pointer.GetDpiAsync()).Current;
+    var tracker = new GestureTracker { Dpi = dpi };
+    await using var trace = tracePath is null ? null : new StreamWriter(tracePath);
+    trace?.WriteLine($$"""{"dpi":{{dpi}},"thresholdMm":{{GestureTracker.DefaultThresholdMm}}}""");
+
+    var gate = new object();
+    var clock = System.Diagnostics.Stopwatch.StartNew();
+    bool held = false;
+    TimeSpan pressedAt = default, lastReport = default;
+    void OnEvent(MxControls.Hidpp.HidppEvent e)
+    {
+        lock (gate)
+        {
+            var t = clock.Elapsed;
+            if (mx.Controls.ParseHeld(e) is { } now && now.Contains(gesture) != held)
+            {
+                held = !held;
+                trace?.WriteLine($$"""{"t":{{t.TotalMilliseconds:F1}},"held":{{(held ? "true" : "false")}}}""");
+                if (held)
+                {
+                    tracker.Reset();
+                    pressedAt = lastReport = t;
+                    Console.WriteLine($"{t.TotalSeconds,8:F3}s  down");
+                    return;
+                }
+                string result = tracker.Direction is { } d ? $"{d} (already fired)" : tracker.IsClick ? "click" : "nothing (diagonal)";
+                Console.WriteLine($"{t.TotalSeconds,8:F3}s  up    after {(t - pressedAt).TotalMilliseconds:F0} ms, {tracker.TravelMm:F1} mm: {result}");
+            }
+            else if (held && mx.Controls.ParseRawXY(e) is { } move)
+            {
+                trace?.WriteLine($$"""{"t":{{t.TotalMilliseconds:F1}},"dx":{{move.Dx}},"dy":{{move.Dy}}}""");
+                var fired = tracker.Add(move.Dx, move.Dy);
+                Console.WriteLine($"{t.TotalSeconds,8:F3}s    {move.Dx,5} {move.Dy,5}  +{(t - lastReport).TotalMilliseconds,4:F0} ms  {tracker.TravelMm,5:F1} mm"
+                    + (fired is { } direction ? $"  -> {direction} after {(t - pressedAt).TotalMilliseconds:F0} ms" : ""));
+                lastReport = t;
+            }
+        }
+    }
+
+    mx.Channel.EventReceived += OnEvent;
+    var original = await mx.Controls.GetReportingAsync(gesture);
+    await mx.Controls.SetDivertAsync(gesture, divert: true, rawXY: true);
+    try
+    {
+        var done = new TaskCompletionSource();
+        Console.CancelKeyPress += (_, e) => { e.Cancel = true; done.TrySetResult(); };
+        Console.WriteLine($"Swipe with the gesture button held for {seconds:F0}s at {dpi} DPI; nothing fires. Ctrl+C stops early.");
+        await Task.WhenAny(done.Task, Task.Delay(TimeSpan.FromSeconds(seconds)));
+    }
+    finally
+    {
+        await mx.Controls.SetDivertAsync(gesture, original.Diverted, original.RawXY);
+        mx.Channel.EventReceived -= OnEvent;
+    }
+    if (tracePath is not null)
+        Console.WriteLine($"Saved the trace to {Path.GetFullPath(tracePath)}");
+    return 0;
+}
+
 static async Task<int> Haptic(MxDevice mx, string name)
 {
     if (!Enum.TryParse<HapticWaveform>(name, ignoreCase: true, out var waveform))
@@ -149,7 +234,7 @@ static async Task<int> Haptic(MxDevice mx, string name)
 static async Task<int> Hold(MxDevice mx, MxControls.Platform.IPlatform platform, string[] args)
 {
     double seconds = 60;
-    var keys = new Dictionary<ushort, string>();
+    var bindings = new List<ButtonBinding>();
     for (int i = 0; i < args.Length; i++)
     {
         if (args[i] == "--seconds" && i + 1 < args.Length)
@@ -158,22 +243,31 @@ static async Task<int> Hold(MxDevice mx, MxControls.Platform.IPlatform platform,
             continue;
         }
         var parts = args[i].Split('=', 2);
-        if (parts.Length != 2 || !ReprogControls.KnownButtons.TryGetValue(parts[0], out var cid))
+        if (parts.Length != 2 || !ReprogControls.KnownButtons.ContainsKey(parts[0]))
             return Fail($"Expected <button>=<key>, such as back=Shift; got '{args[i]}'");
         var code = KeyNames.Normalize(parts[1]);
-        if (!platform.Keys.Supports(code))
+        if (!platform.Input.Supports(code))
             return Fail($"Unknown key '{parts[1]}'");
-        keys[cid] = code;
+        bindings.Add(ButtonBinding.Hold(parts[0].ToLowerInvariant(), code));
     }
-    if (keys.Count == 0)
+    if (bindings.Count == 0)
         return Fail("Map at least one button, such as back=Shift");
 
     var clock = System.Diagnostics.Stopwatch.StartNew();
-    await using var remapper = await HoldRemapper.StartAsync(mx, platform.Keys, keys);
-    remapper.Changed += (cid, code, down) =>
-        Console.WriteLine($"{clock.Elapsed.TotalSeconds,8:F3}s  {(down ? "down" : "up  ")}  {ReprogControls.NameOf(cid)} -> {code}");
-    remapper.Failed += error => Console.Error.WriteLine($"Key injection failed: {error.Message}");
-    foreach (var cid in remapper.SharedControls)
+    await using var engine = await ButtonEngine.StartAsync(mx, platform, bindings);
+    engine.Failed += error => Console.Error.WriteLine($"Key injection failed: {error.Message}");
+    var held = new HashSet<ushort>();
+    mx.Channel.EventReceived += e =>
+    {
+        if (mx.Controls.ParseHeld(e) is not { } now)
+            return;
+        foreach (var cid in now.Except(held))
+            Console.WriteLine($"{clock.Elapsed.TotalSeconds,8:F3}s  down  {ReprogControls.NameOf(cid)}");
+        foreach (var cid in held.Except(now))
+            Console.WriteLine($"{clock.Elapsed.TotalSeconds,8:F3}s  up    {ReprogControls.NameOf(cid)}");
+        held = [.. now];
+    };
+    foreach (var cid in bindings.Select(b => ReprogControls.KnownButtons[b.Button]).Where(cid => engine.DivertedBefore(cid) == true))
         Console.WriteLine($"Note: {ReprogControls.NameOf(cid)} was already diverted, probably by Logi Options+, which will also act on it.");
 
     var done = new TaskCompletionSource();

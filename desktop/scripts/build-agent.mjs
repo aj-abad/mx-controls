@@ -1,7 +1,7 @@
 // Publishes the agent with NativeAOT to src-tauri/binaries, where Tauri bundles it as the `mx-agent` sidecar.
 // Skips the publish when the binary is newer than every agent source file; `--force` publishes anyway.
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -23,6 +23,11 @@ if (!runtime) throw new Error(`No .NET runtime identifier for ${triple}`);
 const extension = triple.includes("windows") ? ".exe" : "";
 const target = join(desktop, "src-tauri", "binaries", `mx-agent-${triple}${extension}`);
 
+// Tauri copies the sidecar beside the app on every build, which fails on Windows while an agent runs from that
+// copy, so that agent is stopped; the app starts it again when it opens. An agent running from anywhere else, such
+// as the one deploy.cmd unpacks, keeps the buttons working through the build.
+stopAgentRunningFromBuild();
+
 if (!process.argv.includes("--force") && existsSync(target) && newestSource(agentRoot) < statSync(target).mtimeMs) {
   console.log(`mx-agent is up to date: ${target}`);
   process.exit(0);
@@ -37,6 +42,28 @@ execFileSync(
 mkdirSync(dirname(target), { recursive: true });
 copyFileSync(join(output, `mx-agent${extension}`), target);
 console.log(`Published mx-agent for ${triple}: ${target}`);
+
+function stopAgentRunningFromBuild() {
+  if (process.platform !== "win32" || !existsSync(target)) return;
+  const copies = ["debug", "release"].map((profile) => join(desktop, "src-tauri", "target", profile, "mx-agent.exe"));
+  if (!copies.some(isRunning)) return;
+  try {
+    execFileSync(target, ["--stop"], { stdio: "ignore", timeout: 10_000 });
+  } catch {
+    console.warn("Couldn't stop the running agent; the build may fail to replace it.");
+  }
+}
+
+// Windows won't open a running program's file for writing.
+function isRunning(executable) {
+  if (!existsSync(executable)) return false;
+  try {
+    closeSync(openSync(executable, "r+"));
+    return false;
+  } catch (error) {
+    return error.code === "EBUSY" || error.code === "EPERM";
+  }
+}
 
 function hostTriple() {
   const info = execFileSync("rustc", ["-vV"], { encoding: "utf8" });

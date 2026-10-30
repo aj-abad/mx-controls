@@ -56,14 +56,7 @@ public sealed class HidppChannel : IAsyncDisposable
             _pendingFeature = featureIndex;
             _pendingFunction = (byte)((function << 4) | _softwareId);
             _pending = reply;
-
-            var report = new byte[LongReportLength];
-            report[0] = LongReportId;
-            report[1] = _deviceIndex;
-            report[2] = featureIndex;
-            report[3] = _pendingFunction;
-            args.CopyTo(report.AsMemory(4));
-            await _stream.WriteAsync(report, cancel);
+            await _stream.WriteAsync(Report(featureIndex, _pendingFunction, args), cancel);
             return await reply.Task.WaitAsync(ReplyTimeout, cancel);
         }
         finally
@@ -71,6 +64,33 @@ public sealed class HidppChannel : IAsyncDisposable
             _pending = null;
             _gate.Release();
         }
+    }
+
+    /// <summary>Sends a request without waiting for its reply, for one that may never come, such as a host switch.</summary>
+    public async Task SendAsync(byte featureIndex, byte function, ReadOnlyMemory<byte> args, CancellationToken cancel = default)
+    {
+        if (args.Length > LongReportLength - 4)
+            throw new ArgumentException("Too many parameters for a long report", nameof(args));
+        await _gate.WaitAsync(cancel);
+        try
+        {
+            await _stream.WriteAsync(Report(featureIndex, (byte)((function << 4) | _softwareId), args), cancel);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private byte[] Report(byte featureIndex, byte function, ReadOnlyMemory<byte> args)
+    {
+        var report = new byte[LongReportLength];
+        report[0] = LongReportId;
+        report[1] = _deviceIndex;
+        report[2] = featureIndex;
+        report[3] = function;
+        args.CopyTo(report.AsMemory(4));
+        return report;
     }
 
     private async Task ReadLoop()

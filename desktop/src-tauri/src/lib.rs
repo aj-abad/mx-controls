@@ -1,4 +1,6 @@
 mod agent;
+#[cfg(feature = "embedded-agent")]
+mod embedded_agent;
 
 use agent::Agent;
 use serde_json::Value;

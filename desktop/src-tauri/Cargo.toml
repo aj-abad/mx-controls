@@ -7,6 +7,10 @@ edition = "2021"
 name = "mx_controls_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# One portable exe with the agent inside it, for `deploy.cmd`. The installer ships the agent beside the app instead.
+embedded-agent = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

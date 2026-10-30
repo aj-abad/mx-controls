@@ -11,6 +11,10 @@ public readonly record struct HiResWheelState(int Multiplier, bool CanInvert, bo
 
 public readonly record struct ThumbWheelState(int NativeResolution, int DivertedResolution, bool Diverted, bool Inverted);
 
+/// <param name="Rotation">Counts turned since the last event, in diverted resolution.</param>
+/// <param name="Phase">0 idle, 1 the first event of a turn, 2 during one, 3 the last.</param>
+public readonly record struct ThumbWheelTurn(int Rotation, int Phase);
+
 /// <summary>SMART_SHIFT_ENHANCED (0x2111), HIRES_WHEEL (0x2121) and THUMB_WHEEL (0x2150).</summary>
 public sealed class WheelSettings(MxDevice device)
 {
@@ -42,5 +46,17 @@ public sealed class WheelSettings(MxDevice device)
         var info = await device.CallAsync(FeatureIds.ThumbWheel, 0);
         var status = await device.CallAsync(FeatureIds.ThumbWheel, 1);
         return new ThumbWheelState((info[0] << 8) | info[1], (info[2] << 8) | info[3], status[0] == 1, status[1] != 0);
+    }
+
+    /// <summary>Diverted, the wheel reports turns as events instead of scrolling; inverted flips both.</summary>
+    public Task SetThumbWheelAsync(bool divert, bool invert) =>
+        device.CallAsync(FeatureIds.ThumbWheel, 2, (byte)(divert ? 1 : 0), (byte)(invert ? 1 : 0));
+
+    /// <summary>A turn of the diverted thumb wheel, or null for other events.</summary>
+    public ThumbWheelTurn? ParseThumbWheel(HidppEvent e)
+    {
+        if (!device.TryGetIndex(FeatureIds.ThumbWheel, out var index) || e.FeatureIndex != index || e.Function != 0)
+            return null;
+        return new ThumbWheelTurn((short)((e.Payload[0] << 8) | e.Payload[1]), e.Payload[4]);
     }
 }

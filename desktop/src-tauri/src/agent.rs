@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot, Mutex};
@@ -15,6 +15,8 @@ use tokio::sync::{mpsc, oneshot, Mutex};
 const PIPE_NAME: &str = "mx-controls-agent";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const RECONNECT_DELAY: Duration = Duration::from_millis(500);
+/// Time for a starting agent to open its pipe before another launch.
+const RELAUNCH_DELAY: Duration = Duration::from_secs(5);
 
 type Reply = Result<Value, String>;
 
@@ -57,14 +59,23 @@ impl Agent {
     }
 }
 
-/// Keeps a connection to the agent open for the app's lifetime, starting the agent once if nothing answers.
+/// Keeps a connection to the agent open for the app's lifetime, starting the agent whenever nothing answers,
+/// including after it crashed or was stopped.
 pub async fn run(app: AppHandle, agent: Arc<Agent>) {
-    let mut launched = false;
+    #[cfg(feature = "embedded-agent")]
+    if let Err(error) = tokio::task::spawn_blocking(crate::embedded_agent::unpack)
+        .await
+        .map_err(std::io::Error::other)
+        .and_then(|unpacked| unpacked)
+    {
+        eprintln!("MX Controls: couldn't unpack the agent: {error}");
+    }
+    let mut launched: Option<Instant> = None;
     loop {
         match connect().await {
             Ok(stream) => serve(&app, &agent, stream).await,
-            Err(_) if !launched => {
-                launched = true;
+            Err(_) if launched.is_none_or(|at| at.elapsed() >= RELAUNCH_DELAY) => {
+                launched = Some(Instant::now());
                 launch_agent();
             }
             Err(_) => {}
@@ -136,10 +147,18 @@ async fn connect() -> std::io::Result<tokio::net::UnixStream> {
     tokio::net::UnixStream::connect(std::env::temp_dir().join(format!("CoreFxPipe_{PIPE_NAME}"))).await
 }
 
-/// `MX_AGENT_PATH`, or the `mx-agent` sidecar, which Tauri places beside the app in a bundle and in development.
+/// `MX_AGENT_PATH`, the agent a portable build unpacked, or the `mx-agent` sidecar, which Tauri places beside the
+/// app in a bundle and in development.
 fn agent_path() -> Option<PathBuf> {
     if let Ok(path) = std::env::var("MX_AGENT_PATH") {
         return Some(path.into());
+    }
+    #[cfg(feature = "embedded-agent")]
+    {
+        let unpacked = crate::embedded_agent::path();
+        if unpacked.exists() {
+            return Some(unpacked);
+        }
     }
     let exe = if cfg!(windows) { "mx-agent.exe" } else { "mx-agent" };
     let beside = std::env::current_exe().ok()?.parent()?.join(exe);
@@ -154,13 +173,20 @@ fn launch_agent() {
     };
     let mut command = Command::new(&path);
     command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    hide_window(&mut command);
+    if let Err(error) = command.spawn() {
+        eprintln!("MX Controls: couldn't start {}: {error}", path.display());
+    }
+}
+
+/// Keeps the agent, a console program, from opening a console window.
+pub fn hide_window(command: &mut Command) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         command.creation_flags(CREATE_NO_WINDOW);
     }
-    if let Err(error) = command.spawn() {
-        eprintln!("MX Controls: couldn't start {}: {error}", path.display());
-    }
+    #[cfg(not(windows))]
+    let _ = command;
 }

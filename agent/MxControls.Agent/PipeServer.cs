@@ -12,6 +12,8 @@ namespace MxControls.Agent;
 /// </summary>
 public sealed class PipeServer(AgentService service)
 {
+    private const int BufferSize = 64 * 1024;
+
     private readonly ConcurrentDictionary<Client, byte> _clients = new();
 
     public async Task RunAsync(CancellationToken stop)
@@ -21,9 +23,10 @@ public sealed class PipeServer(AgentService service)
         {
             while (!stop.IsCancellationRequested)
             {
+                // With no buffer, a write blocks until the client reads it, so a client that only writes would stall.
                 var pipe = new NamedPipeServerStream(Protocol.PipeName, PipeDirection.InOut,
                     NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte,
-                    PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+                    PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly, BufferSize, BufferSize);
                 try
                 {
                     await pipe.WaitForConnectionAsync(stop);
@@ -48,7 +51,7 @@ public sealed class PipeServer(AgentService service)
         Log.Write($"Client connected ({_clients.Count} open)");
         try
         {
-            await client.SendAsync(new JsonObject { ["event"] = "state", ["data"] = ToNode(service.State) });
+            _ = client.SendAsync(new JsonObject { ["event"] = "state", ["data"] = ToNode(service.State) });
             using var reader = new StreamReader(client.Pipe, Encoding.UTF8, leaveOpen: true);
             while (!stop.IsCancellationRequested && await reader.ReadLineAsync(stop) is { } line)
             {
@@ -62,6 +65,9 @@ public sealed class PipeServer(AgentService service)
         finally
         {
             _clients.TryRemove(client, out _);
+            // An app that closed or crashed mid-recording mustn't leave the keyboard captured.
+            if (_clients.IsEmpty)
+                service.StopKeyCapture();
             await client.Pipe.DisposeAsync();
             Log.Write($"Client disconnected ({_clients.Count} open)");
         }

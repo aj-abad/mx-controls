@@ -14,6 +14,8 @@ public readonly record struct BatteryState(int Percent, bool Charging, bool Exte
 /// <summary>DEVICE_NAME (0x0005), DEVICE_FW_VERSION (0x0003) and UNIFIED_BATTERY (0x1004).</summary>
 public sealed class DeviceInfo(MxDevice device)
 {
+    private const byte BatteryStatusEvent = 0;
+
     public async Task<string> GetNameAsync()
     {
         int length = (await device.CallAsync(FeatureIds.DeviceName, 0))[0];
@@ -38,10 +40,21 @@ public sealed class DeviceInfo(MxDevice device)
         return entities;
     }
 
-    public async Task<BatteryState> GetBatteryAsync()
+    public async Task<BatteryState> GetBatteryAsync() => ParseBatteryStatus(await device.CallAsync(FeatureIds.UnifiedBattery, 1));
+
+    /// <summary>
+    /// The battery from a status event, which the mouse sends as soon as its charge, charging or power changes;
+    /// null for other events.
+    /// </summary>
+    public BatteryState? ParseBatteryEvent(HidppEvent e)
     {
-        var r = await device.CallAsync(FeatureIds.UnifiedBattery, 1);
-        // Charging status: 0 discharging, 1 charging, 2 slow charging, 3 full, 4 error.
-        return new BatteryState(r[0], r[2] is 1 or 2, r[3] != 0);
+        if (!device.TryGetIndex(FeatureIds.UnifiedBattery, out var index) || e.FeatureIndex != index || e.Function != BatteryStatusEvent)
+            return null;
+        return ParseBatteryStatus(e.Payload);
     }
+
+    /// <summary>The status layout shared by the getStatus reply and the status event.</summary>
+    public static BatteryState ParseBatteryStatus(ReadOnlySpan<byte> status) =>
+        // Charging status: 0 discharging, 1 charging, 2 slow charging, 3 full, 4 error.
+        new(status[0], status[2] is 1 or 2, status[3] != 0);
 }

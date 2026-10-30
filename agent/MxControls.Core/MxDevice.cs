@@ -26,6 +26,7 @@ public sealed class MxDevice : IAsyncDisposable
     public PointerSettings Pointer { get; }
     public WheelSettings Wheels { get; }
     public HapticSettings Haptics { get; }
+    public HostSettings Hosts { get; }
     public DeviceInfo Info { get; }
 
     private MxDevice(HidDeviceInfo device, Stream stream)
@@ -36,6 +37,7 @@ public sealed class MxDevice : IAsyncDisposable
         Pointer = new PointerSettings(this);
         Wheels = new WheelSettings(this);
         Haptics = new HapticSettings(this);
+        Hosts = new HostSettings(this);
         Info = new DeviceInfo(this);
     }
 
@@ -62,9 +64,38 @@ public sealed class MxDevice : IAsyncDisposable
 
     public bool Has(ushort featureId) => _indexes.ContainsKey(featureId);
 
-    public Task<byte[]> CallAsync(ushort featureId, byte function, params byte[] args) =>
+    /// <summary>A call got no reply and was sent again: the feature and function, for logging.</summary>
+    public event Action<string>? CallRetried;
+
+    /// <summary>
+    /// Calls a feature function. One that gets no reply is sent once more, which is safe because the calls set or
+    /// read whole values; a late reply to the first send answers the second.
+    /// </summary>
+    public async Task<byte[]> CallAsync(ushort featureId, byte function, params byte[] args)
+    {
+        if (!_indexes.TryGetValue(featureId, out var index))
+            throw new NotSupportedException($"{Interface.Product} has no {FeatureIds.NameOf(featureId)} feature");
+        try
+        {
+            return await Channel.CallAsync(index, function, args);
+        }
+        catch (TimeoutException)
+        {
+            CallRetried?.Invoke($"{FeatureIds.NameOf(featureId)} function {function}");
+        }
+        try
+        {
+            return await Channel.CallAsync(index, function, args);
+        }
+        catch (TimeoutException)
+        {
+            throw new TimeoutException($"The mouse didn't answer {FeatureIds.NameOf(featureId)} function {function}, twice.");
+        }
+    }
+
+    public Task SendAsync(ushort featureId, byte function, params byte[] args) =>
         _indexes.TryGetValue(featureId, out var index)
-            ? Channel.CallAsync(index, function, args)
+            ? Channel.SendAsync(index, function, args)
             : throw new NotSupportedException($"{Interface.Product} has no {FeatureIds.NameOf(featureId)} feature");
 
     public bool TryGetIndex(ushort featureId, out byte index) => _indexes.TryGetValue(featureId, out index);

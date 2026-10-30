@@ -53,6 +53,12 @@ public sealed class HapticSettings(MxDevice device)
 
     public Task PlayAsync(HapticWaveform waveform) => device.CallAsync(FeatureIds.Haptic, 4, (byte)waveform);
 
+    /// <summary>
+    /// Plays a waveform without waiting for the reply, for feedback that must land at once. A round trip holds
+    /// the channel for a radio interval or two, which other requests would queue behind.
+    /// </summary>
+    public Task TapAsync(HapticWaveform waveform) => device.SendAsync(FeatureIds.Haptic, 4, (byte)waveform);
+
     public async Task<IReadOnlyList<ForceButton>> GetForceButtonsAsync()
     {
         int count = (await device.CallAsync(FeatureIds.ForceSensingButton, 0))[0];

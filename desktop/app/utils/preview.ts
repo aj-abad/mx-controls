@@ -6,7 +6,28 @@ export function previewState(): AgentState {
     connected: true,
     optionsPlusRunning: true,
     error: null,
-    mappings: [{ button: "middle", key: "ShiftLeft" }],
+    startAtLogin: true,
+    revision: 0,
+    thumbWheel: { mode: "scroll", speed: 100, inverted: false },
+    profiles: [
+      { id: "default", name: "Default" },
+      { id: "games", name: "Games" },
+    ],
+    activeProfile: "default",
+    bindings: [
+      { button: "middle", mode: "action", action: { type: "hold", keys: ["ShiftLeft"] } },
+      {
+        button: "gesture",
+        mode: "gesture",
+        gesture: {
+          click: { type: "press", keys: ["ControlLeft", "KeyC"] },
+          up: { type: "press", keys: ["ControlLeft", "KeyV"] },
+          down: { type: "press", keys: ["Delete"] },
+          left: { type: "press", keys: ["ControlLeft", "KeyZ"] },
+          right: { type: "press", keys: ["ControlLeft", "KeyY"] },
+        },
+      },
+    ],
     device: {
       name: "MX Master 4 for Mac",
       productId: "B042",
@@ -28,16 +49,32 @@ export function previewState(): AgentState {
         { id: "smartshift", name: "Smart Shift", cid: 0xc4, divertedElsewhere: true },
         { id: "haptic", name: "Haptic", cid: 0x1a0, divertedElsewhere: true },
       ],
+      thumbWheel: { divertedElsewhere: true },
+      hosts: {
+        current: 0,
+        canRename: true,
+        maxNameLength: 24,
+        channels: [
+          { index: 0, paired: true, name: "DESKTOP-AJ" },
+          { index: 1, paired: true, name: "MacBook Pro" },
+          { index: 2, paired: false, name: "" },
+        ],
+      },
     },
   };
 }
 
-/** Applies a request to the sample state the way the agent would. */
+/**
+ * Applies a request to a state the way the agent would. It's the whole agent in the preview, and in the app it
+ * shows a change before the agent has answered.
+ */
 export function previewCall(state: AgentState, method: string, params: Record<string, unknown>): AgentState {
   const device = state.device!;
   switch (method) {
-    case "setMappings":
-      return { ...state, mappings: params.mappings as AgentState["mappings"] };
+    case "setBindings":
+      return { ...state, bindings: params.bindings as AgentState["bindings"] };
+    case "setStartAtLogin":
+      return { ...state, startAtLogin: params.enabled as boolean };
     case "setDpi":
       return { ...state, device: { ...device, dpi: { ...device.dpi, current: params.dpi as number } } };
     case "setSmartShift":
@@ -45,6 +82,27 @@ export function previewCall(state: AgentState, method: string, params: Record<st
     case "setHapticLevel": {
       const level = params.level as number;
       return { ...state, device: { ...device, haptics: { ...device.haptics, enabled: level > 0, level: level || device.haptics.level } } };
+    }
+    case "setThumbWheel":
+      return { ...state, thumbWheel: params.thumbWheel as AgentState["thumbWheel"] };
+    case "switchProfile":
+      // The sample keeps one set of bindings; switching only changes which profile is named.
+      return { ...state, activeProfile: params.id as string };
+    case "createProfile": {
+      const id = Math.random().toString(36).slice(2, 10);
+      return { ...state, profiles: [...state.profiles, { id, name: params.name as string }], activeProfile: id };
+    }
+    case "renameProfile":
+      return { ...state, profiles: state.profiles.map((p) => (p.id === params.id ? { ...p, name: params.name as string } : p)) };
+    case "deleteProfile": {
+      if (state.profiles.length === 1) throw new Error("The last profile can't be deleted.");
+      const profiles = state.profiles.filter((p) => p.id !== params.id);
+      return { ...state, profiles, activeProfile: state.activeProfile === params.id ? profiles[0]!.id : state.activeProfile };
+    }
+    case "setHostName": {
+      const hosts = device.hosts!;
+      const channels = hosts.channels.map((c) => (c.index === hosts.current ? { ...c, name: params.name as string } : c));
+      return { ...state, device: { ...device, hosts: { ...hosts, channels } } };
     }
     case "setForce":
       return { ...state, device: { ...device, forceButton: { ...device.forceButton!, current: params.force as number } } };

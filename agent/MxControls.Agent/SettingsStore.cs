@@ -1,16 +1,68 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using MxControls.Actions;
 
 namespace MxControls.Agent;
 
-public sealed record AgentSettings(IReadOnlyList<ButtonMapping> Mappings)
+/// <summary>A named set of button bindings and thumb wheel settings; one is active at a time.</summary>
+public sealed record Profile(string Id, string Name, IReadOnlyList<ButtonBinding>? Bindings = null, ThumbWheelSettings? ThumbWheel = null)
 {
-    public static readonly AgentSettings Empty = new([]);
+    public const string DefaultId = "default";
+    public static readonly Profile Default = new(DefaultId, "Default", []);
+
+    [JsonIgnore]
+    public IReadOnlyList<ButtonBinding> AllBindings => Bindings ?? [];
+
+    [JsonIgnore]
+    public ThumbWheelSettings Wheel => ThumbWheel ?? ThumbWheelSettings.Default;
+
+    public static string NewId() => Guid.NewGuid().ToString("N")[..8];
 }
+
+/// <param name="Bindings">Bindings from before profiles; read once and saved back as the default profile.</param>
+/// <param name="Mappings">Held-key mappings from before bindings; read once and saved back the same way.</param>
+public sealed record AgentSettings(
+    IReadOnlyList<ButtonBinding>? Bindings = null, bool StartAtLogin = true, IReadOnlyList<LegacyMapping>? Mappings = null,
+    IReadOnlyList<Profile>? Profiles = null, string? ActiveProfile = null)
+{
+    public static readonly AgentSettings Empty = new();
+
+    [JsonIgnore]
+    public IReadOnlyList<Profile> AllProfiles => Profiles is { Count: > 0 } profiles ? profiles : [Profile.Default];
+
+    [JsonIgnore]
+    public Profile Active => AllProfiles.FirstOrDefault(p => p.Id == ActiveProfile) ?? AllProfiles[0];
+
+    [JsonIgnore]
+    public IReadOnlyList<ButtonBinding> AllBindings => Active.AllBindings;
+
+    /// <summary>Replaces the active profile with what <paramref name="change"/> makes of it.</summary>
+    public AgentSettings WithActive(Func<Profile, Profile> change)
+    {
+        var active = Active;
+        return this with { Profiles = AllProfiles.Select(p => p.Id == active.Id ? change(p) : p).ToArray(), ActiveProfile = active.Id };
+    }
+
+    public AgentSettings Migrated()
+    {
+        var legacy = Bindings ?? Mappings?.Select(m => ButtonBinding.Hold(m.Button, m.Key)).ToArray();
+        if (legacy is null)
+            return this;
+        var profiles = Profiles is { Count: > 0 } existing ? existing : [Profile.Default with { Bindings = legacy }];
+        return this with { Bindings = null, Mappings = null, Profiles = profiles, ActiveProfile = ActiveProfile ?? profiles[0].Id };
+    }
+}
+
+public sealed record LegacyMapping(string Button, string Key);
 
 /// <summary>Settings and logs in the user's application data folder.</summary>
 public sealed class SettingsStore
 {
-    private static readonly JsonSerializerOptions Indented = new(Protocol.Json) { WriteIndented = true };
+    private static readonly JsonSerializerOptions File = new(Protocol.Json)
+    {
+        WriteIndented = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    };
 
     public string Folder { get; }
     private string SettingsPath => Path.Combine(Folder, "settings.json");
@@ -28,9 +80,14 @@ public sealed class SettingsStore
     {
         try
         {
-            return File.Exists(SettingsPath)
-                ? JsonSerializer.Deserialize(File.ReadAllText(SettingsPath), AgentJson.Default.AgentSettings) ?? AgentSettings.Empty
-                : AgentSettings.Empty;
+            if (!System.IO.File.Exists(SettingsPath))
+                return AgentSettings.Empty;
+            var settings = JsonSerializer.Deserialize(System.IO.File.ReadAllText(SettingsPath), AgentJson.Default.AgentSettings)
+                ?? AgentSettings.Empty;
+            var migrated = settings.Migrated();
+            if (!ReferenceEquals(migrated, settings))
+                Save(migrated);
+            return migrated;
         }
         catch (JsonException error)
         {
@@ -42,8 +99,8 @@ public sealed class SettingsStore
     public void Save(AgentSettings settings)
     {
         var temporary = SettingsPath + ".tmp";
-        File.WriteAllText(temporary, JsonSerializer.Serialize(settings, Indented.GetTypeInfo(typeof(AgentSettings))));
-        File.Move(temporary, SettingsPath, overwrite: true);
+        System.IO.File.WriteAllText(temporary, JsonSerializer.Serialize(settings, File.GetTypeInfo(typeof(AgentSettings))));
+        System.IO.File.Move(temporary, SettingsPath, overwrite: true);
     }
 }
 
@@ -66,7 +123,7 @@ public static class Log
         {
             Console.WriteLine(line);
             if (_path is not null)
-                File.AppendAllText(_path, line + Environment.NewLine);
+                System.IO.File.AppendAllText(_path, line + Environment.NewLine);
         }
     }
 }

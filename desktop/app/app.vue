@@ -1,17 +1,18 @@
 <template>
-  <NuxtLayout>
-    <NuxtPage />
-  </NuxtLayout>
-  <DialogBackdrop />
-  <SharedToasters />
-  <GlassFilters />
+  <!-- With Reduce Motion on, movement turns into fades; nothing that carries meaning is lost. -->
+  <MotionConfig reduced-motion="user">
+    <TooltipProvider :delay-duration="300">
+      <NuxtLayout>
+        <NuxtPage />
+      </NuxtLayout>
+      <UiToaster />
+    </TooltipProvider>
+  </MotionConfig>
 </template>
 
 <script setup lang="ts">
-import DialogBackdrop from "@arcon.mobi/sine/components/UI/DialogBackdrop.vue";
-import GlassFilters from "@arcon.mobi/sine/components/UI/GlassFilters.vue";
-import SharedToasters from "@arcon.mobi/sine/components/Shared/Toasters.vue";
-import { useOutsideClickSelection } from "@arcon.mobi/sine/composables/useOutsideClickSelection";
+import { MotionConfig } from "motion-v";
+import { TooltipProvider } from "reka-ui";
 
-useOutsideClickSelection();
+useWindowDrag();
 </script>

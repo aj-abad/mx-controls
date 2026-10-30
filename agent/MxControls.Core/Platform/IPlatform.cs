@@ -11,18 +11,62 @@ public interface IHidBackend
     Stream Open(HidDeviceInfo device);
 }
 
-/// <summary>Sends key presses to the focused app. Keys are W3C <c>KeyboardEvent.code</c> names, such as "ShiftLeft".</summary>
-public interface IKeyInjector
+/// <summary>Sends input to the focused app. Keys are W3C <c>KeyboardEvent.code</c> names, such as "ShiftLeft".</summary>
+public interface IInputInjector
 {
     bool Supports(string code);
     void Down(string code);
     void Up(string code);
+
+    /// <summary>Turns the vertical wheel by whole notches; positive scrolls up.</summary>
+    void Scroll(int notches);
+
+    /// <summary>Scrolls sideways by wheel units, 120 to a notch, so a fraction of a notch can be sent; positive scrolls right.</summary>
+    void ScrollHorizontal(int units);
+
+    /// <summary>Mouse buttons are named as in <see cref="Actions.MouseButtons"/>, such as "back".</summary>
+    bool SupportsMouse(string button);
+    void MouseDown(string button);
+    void MouseUp(string button);
+}
+
+/// <summary>
+/// Takes over the keyboard while a shortcut is being recorded: every key goes to the callback instead of to apps
+/// and the system, so the Windows key doesn't open Start and Alt+Tab doesn't switch windows. Keys typed by
+/// software, ours included, still go through.
+/// </summary>
+public interface IKeyCapture
+{
+    /// <summary>
+    /// Reports each key going down or up as its <c>KeyboardEvent.code</c> name, or null for a key without one.
+    /// Auto-repeat isn't reported. The callback runs on the platform's hook thread and must return quickly.
+    /// </summary>
+    void Start(Action<string?, bool> onKey);
+
+    /// <summary>Hands the keyboard back. Keys still held stay hidden until released, so no app sees a stray key-up.</summary>
+    void Stop();
+}
+
+/// <summary>Starts a program when the user signs in.</summary>
+public interface ILoginItem
+{
+    bool IsEnabled(string name);
+    void Enable(string name, string executable);
+    void Disable(string name);
 }
 
 public interface IPlatform
 {
     IHidBackend Hid { get; }
-    IKeyInjector Keys { get; }
+    IInputInjector Input { get; }
+    ILoginItem LoginItem { get; }
+
+    /// <summary>Null where the platform can't take over the keyboard; the app then records keys in its own window.</summary>
+    IKeyCapture? KeyCapture { get; }
+
+    /// <summary>Named actions whose keys differ by platform, such as "taskView"; see <see cref="Actions.SystemActions"/>.</summary>
+    bool SupportsSystem(string name);
+    void RunSystem(string name);
 
     /// <summary>Whether Logi Options+ is running; it diverts buttons too and will act on them alongside us.</summary>
     bool IsOptionsPlusRunning();
