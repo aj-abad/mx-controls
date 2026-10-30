@@ -119,7 +119,7 @@ const unfinished = computed(() =>
 );
 
 /**
- * Changes apply as they're made, with an Undo on the toast, once the agent would take them. Until then the
+ * Changes apply as they're made, with Ctrl+Z to put them back, once the agent would take them. Until then the
  * draft waits: an action with no choice yet, a shortcut with no keys, or a gesture that does nothing at all,
  * which would only be a button switched off by looking at the Gesture tab.
  */

@@ -366,7 +366,7 @@ function onKey(event: KeyboardEvent) {
 }
 
 // The changes remembered belong to one profile on one mouse; putting them back elsewhere would change the wrong one.
-watch(() => [state.value?.activeProfile, device.value?.productId], forgetUndo);
+watch([() => state.value?.activeProfile, () => device.value?.productId], forgetUndo);
 onMounted(() => window.addEventListener("keydown", onKey));
 onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 
