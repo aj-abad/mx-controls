@@ -103,8 +103,7 @@ function startRename() {
 
 async function switchTo(channel: Channel) {
   open.value = false;
-  if (await attempt("switchHost", { host: channel.index }, "Couldn't switch the mouse"))
-    showToast(`Sent the mouse to ${label(channel)}`);
+  await attempt("switchHost", { host: channel.index }, "Couldn't switch the mouse");
 }
 
 async function rename(name: string) {

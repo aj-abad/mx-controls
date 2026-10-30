@@ -59,7 +59,7 @@ pnpm typecheck
 dotnet test ../agent/MxControls.Tests
 ```
 
-The tests cover gesture direction, action timing and key order, binding validation, thumb wheel scaling, profiles, settings migration and the JSON shape. Gestures, the thumb wheel, Easy-Switch and injected input on real hardware need checking by hand.
+The tests cover gesture direction, multi-click counting, action timing and key order, binding validation, thumb wheel scaling, profiles, settings migration and the JSON shape. Gestures, the thumb wheel, Easy-Switch and injected input on real hardware need checking by hand.
 
 ## Agent protocol
 
@@ -76,6 +76,9 @@ One JSON object per line over the pipe `mx-controls-agent`: a named pipe on Wind
 | `setProfileIcon` | `{ id, icon }`; a Phosphor icon name in kebab case, or null for the profile's initial |
 | `deleteProfile` | `{ id }`; the last one stays |
 | `setStartAtLogin` | `{ enabled }` |
+| `setMultiClickMs` | `{ ms }`, 150 to 600; how long a click waits for another, on every button with a double click |
+| `setGesturePreset` | `{ preset }`; adds a gesture preset or replaces the one with its `id`. A built-in one keeps its name |
+| `deleteGesturePreset` | `{ id }`; a built-in one goes back to how it came. Buttons that follow a deleted one keep only their clicks, and get their moves back if it's set again with the same `id` |
 | `shutdown` | —; the agent hands the buttons back and exits |
 | `setDpi` | `{ dpi }` |
 | `setSmartShift` | `{ ratchet, autoDisengage, torque }` |
@@ -88,7 +91,7 @@ One JSON object per line over the pipe `mx-controls-agent`: a named pipe on Wind
 Requests carry an `id` and get `{ id, result }` or `{ id, error }`. The agent pushes these events:
 - `{ event: "state", data }` on connect and on every change.
 - `{ event: "button", data: { button, cid, down } }` for presses of diverted buttons.
-- `{ event: "gesture", data: { button, direction } }` when a gesture fires.
+- `{ event: "gesture", data: { button, direction, path, phase } }` when a gesture's path changes (`phase: "step"`) or it runs (`"fire"`). `path` has one direction per step and `direction` is its last.
 
 The types are in `agent/MxControls.Agent/Protocol.cs`, mirrored in `desktop/app/composables/useAgent.ts`.
 
@@ -98,16 +101,24 @@ The agent runs device work one request at a time. A request that sets one settin
 
 The app shows a setting's new value as soon as it changes, by applying the request to its copy of the state with `app/utils/preview.ts`. It sends the request 150 ms after the last change to that setting. When the agent answers, its state takes over. A refused change goes back to the agent's value, with a toast.
 
-A binding gives one button, `middle`, `back`, `forward`, `gesture`, `smartshift` or `haptic`, either one action or a gesture:
+A binding gives one button, `middle`, `back`, `forward`, `gesture`, `smartshift` or `haptic`, either one action or a gesture that follows a preset, with `action` as its click:
 
 ```json
 { "button": "smartshift", "mode": "action", "action": { "type": "press", "keys": ["MediaPlayPause"] } }
-{ "button": "gesture", "mode": "gesture", "gesture": { "click": …, "up": …, "down": …, "left": …, "right": … } }
+{ "button": "gesture", "mode": "gesture", "action": { "type": "system", "system": "taskView" }, "preset": "desktops" }
 ```
 
+A gesture preset holds the moves, and every button that follows it changes when it does, in every profile. The state lists them as `gesturePresets` (the built-in `desktops`, `browser` and `media`, as edited, then the user's own), the built-ins as they come as `builtInPresets`, and which buttons follow which as `presetUses`:
+
+```json
+{ "id": "tiling", "name": "Window tiling", "up": …, "down": …, "left": …, "right": { "type": "none", "right": { "type": "press", "keys": ["MetaLeft", "ArrowRight"] } }, "spacingMm": 6 }
+```
+
+Settings from before presets carried a whole `gesture` on the binding, its clicks included. The agent moves each into a preset when it loads them: gestures with the same moves share one, and moves matching a built-in follow it.
+
 An action's `type` is one of these:
-- `hold`: keeps `keys` down for as long as the button is held.
-- `press`: taps them.
+- `hold`, a key in the app: keeps `keys` down for as long as the button is held.
+- `press`, a macro in the app: taps them.
 - `system`: runs `taskView`, `showDesktop`, `zoomIn` or `zoomOut`.
 - `click`: holds the mouse button `mouse`, `back`, `forward` or `middle`, for as long as the button is held. Back and forward are the side buttons apps take as history.
 - `none`: does nothing.
@@ -116,7 +127,17 @@ Keys are `KeyboardEvent.code` names, modifiers first. `repeat: true` repeats a `
 
 A gesture button is diverted with raw XY, so the pointer stays still while it's held. Moving 2 mm in one direction, measured at the mouse's current DPI, fires that direction with a haptic tap the moment the movement gets there; a quick flick fires as readily as a slow drag. A movement more than about 31 degrees off an axis waits until it straightens out. Letting go before 2 mm fires `click`. The first raw XY report of each press carries stale movement from before it and is ignored.
 
-While the button stays down, every direction can fire again, measured from where the movement turned: moving back 2 mm fires the opposite direction, and turning fires the new one. A direction with `repeat: true` fires again for every 4 mm it keeps going, so volume up keeps raising the volume and moving back lowers it at once; it taps its action each time instead of repeating on a timer. A direction without it fires once per stroke, and again after a 150 ms pause.
+While the button stays down, every direction can fire again, measured from where the movement turned: moving back 2 mm fires the opposite direction, and turning fires the new one. A direction with `repeat: true` fires again for every 4 mm it keeps going, so volume up keeps raising the volume and moving back lowers it at once; it taps its action each time instead of repeating on a timer. Once it fires, the rest of the press is locked to its axis, so drifting sideways while changing the volume never skips a track. A direction without it fires once per stroke, and again after a 150 ms pause.
+
+Any direction can lead further: the same way again, up to 3 steps in a run, or at right angles, up to 2 turns. A step does one or the other. Each further step in a run is `spacingMm` on (6 mm by default, 4 to 15), and a turn is 2 mm at right angles. A first direction that leads on doesn't fire as it's reached: the press follows the path, with a haptic tap at each step, a different one at a step that turns, and a softer one backing off. Movement across a run, and onwards at a step that turns, is dropped. Letting go runs the step the path ends on, as a tap; a step of type `none` is a junction that runs nothing, and backing all the way out cancels. Only a first direction with nothing beyond can `hold` or `repeat`.
+
+Both modes take optional double and triple clicks, `doubleClick` and `tripleClick` beside `action`. For a gesture, a click is a press that picks no direction; for an action button, every press is one.
+
+- **No double click set.** Nothing changes: an action button's action lasts as long as the press, and a gesture's click runs on release.
+- **A double click set.** Each click runs once, as a tap, and the agent refuses `hold` or `repeat` on any of them. A release that could still become a higher count waits up to `multiClickMs` (300 ms by default) for the next press. The highest count set runs as soon as it's reached, and a press that turns into a gesture direction first runs the clicks waiting before it.
+- **Triple click.** It needs a double click.
+
+Each click that runs sends a `click` event, `{ button, count }`; gesture directions and paths send `gesture` events.
 
 The thumb wheel's settings are `{ mode, speed, inverted, left, right }`. `mode` is `scroll`, which scrolls sideways, or `actions`, which runs `left` or `right` once for each step, as a tap. `speed` is a percentage from 25 to 300. At its default, `scroll` at 100% and not inverted, the agent leaves the wheel alone, and plain inverted scrolling is a setting on the mouse. Anything else diverts the wheel, and the agent sends the scrolling itself through `MOUSEEVENTF_HWHEEL`. At 100%, one count of the wheel's native resolution scrolls one notch or runs one step. Which way the diverted wheel counts as right hasn't been checked on hardware yet; if it comes out backwards, flip the sign in `ThumbWheelMapper`.
 

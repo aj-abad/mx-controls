@@ -51,6 +51,30 @@
       </motion.div>
     </AnimatePresence>
 
+    <!-- Stays until it's dismissed or a later change goes through, so a refusal isn't missed while looking elsewhere. -->
+    <AnimatePresence :initial="false">
+      <motion.div
+        v-if="failure"
+        :key="failure.id"
+        class="shrink-0"
+        :initial="{ opacity: 0 }"
+        :animate="{ opacity: 1 }"
+        :exit="{ opacity: 0, transition: EXIT }"
+        :transition="BASE">
+        <div role="alert" class="mx-8 mt-2 flex items-center gap-2.5 rounded-xl bg-danger/10 py-1.5 pr-1.5 pl-4 text-sm">
+          <PhWarningCircle class="size-4 shrink-0 text-danger" />
+          <p class="min-w-0 flex-1 py-1">{{ failure.message }}</p>
+          <button
+            type="button"
+            aria-label="Dismiss"
+            class="grid size-7 shrink-0 cursor-pointer place-items-center rounded-full text-ink-3 hover:bg-fill hover:text-ink"
+            @click="dismissFailure">
+            <PhX class="size-3.5" />
+          </button>
+        </div>
+      </motion.div>
+    </AnimatePresence>
+
     <main class="min-h-0 flex-1 px-8 pt-3 pb-8">
       <div v-if="!pipeConnected || !device" class="grid h-full place-items-center">
         <div class="flex max-w-sm flex-col items-center text-center">
@@ -74,10 +98,10 @@
 </template>
 
 <script setup lang="ts">
-import { PhLightning, PhWarning } from "@phosphor-icons/vue";
+import { PhLightning, PhWarning, PhWarningCircle, PhX } from "@phosphor-icons/vue";
 import { AnimatePresence, motion } from "motion-v";
 
-const { state, device, pipeConnected } = useAgent();
+const { state, device, pipeConnected, failure, dismissFailure } = useAgent();
 
 const shared = computed(() => (state.value ? sharedControlCount(state.value) : 0));
 const isMac = navigator.userAgent.includes("Mac");

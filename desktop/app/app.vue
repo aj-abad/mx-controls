@@ -5,7 +5,6 @@
       <NuxtLayout>
         <NuxtPage />
       </NuxtLayout>
-      <UiToaster />
     </TooltipProvider>
   </MotionConfig>
 </template>

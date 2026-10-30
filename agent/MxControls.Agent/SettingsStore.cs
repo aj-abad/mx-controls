@@ -23,10 +23,18 @@ public sealed record Profile(
 
 /// <param name="Bindings">Bindings from before profiles; read once and saved back as the default profile.</param>
 /// <param name="Mappings">Held-key mappings from before bindings; read once and saved back the same way.</param>
+/// <param name="MultiClickMs">How long a click waits for another; one setting for every button and profile.</param>
+/// <param name="GesturePresets">
+/// The user's own presets, and built-in ones they've edited, under the built-in's ID. They belong to no profile.
+/// </param>
 public sealed record AgentSettings(
     IReadOnlyList<ButtonBinding>? Bindings = null, bool StartAtLogin = true, IReadOnlyList<LegacyMapping>? Mappings = null,
-    IReadOnlyList<Profile>? Profiles = null, string? ActiveProfile = null)
+    IReadOnlyList<Profile>? Profiles = null, string? ActiveProfile = null, int MultiClickMs = ClickCounter.DefaultWindowMs,
+    IReadOnlyList<GesturePreset>? GesturePresets = null)
 {
+    public const int MinMultiClickMs = 150;
+    public const int MaxMultiClickMs = 600;
+
     public static readonly AgentSettings Empty = new();
 
     [JsonIgnore]
@@ -37,6 +45,27 @@ public sealed record AgentSettings(
 
     [JsonIgnore]
     public IReadOnlyList<ButtonBinding> AllBindings => Active.AllBindings;
+
+    /// <summary>The built-in presets, as edited if they have been, then the user's own.</summary>
+    [JsonIgnore]
+    public IReadOnlyList<GesturePreset> AllPresets
+    {
+        get
+        {
+            var stored = GesturePresets ?? [];
+            return
+            [
+                .. PresetLibrary.BuiltIn.Select(b => stored.FirstOrDefault(p => p.Id == b.Id) ?? b),
+                .. stored.Where(p => !PresetLibrary.IsBuiltIn(p.Id)),
+            ];
+        }
+    }
+
+    public GesturePreset? FindPreset(string id) => AllPresets.FirstOrDefault(p => p.Id == id);
+
+    /// <summary>The active profile's bindings as the engine runs them, with their presets' moves filled in.</summary>
+    [JsonIgnore]
+    public IEnumerable<ButtonBinding> ResolvedBindings => AllBindings.Select(b => b.Resolve(FindPreset));
 
     /// <summary>Replaces the active profile with what <paramref name="change"/> makes of it.</summary>
     public AgentSettings WithActive(Func<Profile, Profile> change)
@@ -49,9 +78,10 @@ public sealed record AgentSettings(
     {
         var legacy = Bindings ?? Mappings?.Select(m => ButtonBinding.Hold(m.Button, m.Key)).ToArray();
         if (legacy is null)
-            return this;
+            return PresetLibrary.Migrated(this);
         var profiles = Profiles is { Count: > 0 } existing ? existing : [Profile.Default with { Bindings = legacy }];
-        return this with { Bindings = null, Mappings = null, Profiles = profiles, ActiveProfile = ActiveProfile ?? profiles[0].Id };
+        return PresetLibrary.Migrated(
+            this with { Bindings = null, Mappings = null, Profiles = profiles, ActiveProfile = ActiveProfile ?? profiles[0].Id });
     }
 }
 

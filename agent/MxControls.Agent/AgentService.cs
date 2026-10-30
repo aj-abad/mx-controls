@@ -47,7 +47,11 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
     public AgentState State =>
         new(_device is not null && _deviceState is not null, _deviceState, _settings.AllBindings, _settings.Active.Wheel,
             _settings.AllProfiles.Select(p => new ProfileSummary(p.Id, p.Name, p.Icon)).ToArray(), _settings.Active.Id,
-            _settings.StartAtLogin, _optionsPlus, _error, Interlocked.Read(ref _revision));
+            _settings.StartAtLogin, _optionsPlus, _error, Interlocked.Read(ref _revision), _settings.MultiClickMs,
+            _settings.AllPresets, PresetLibrary.BuiltIn,
+            _settings.AllProfiles.SelectMany(p => p.AllBindings
+                .Where(b => b is { IsGesture: true, Preset: not null })
+                .Select(b => new PresetUse(b.Preset!, p.Id, b.Button))).ToArray());
 
     public async Task RunAsync(CancellationToken stop)
     {
@@ -166,9 +170,12 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
     private async Task StartEnginesAsync(MxDevice mx)
     {
         var profile = _settings.Active;
-        _engine = await ButtonEngine.StartAsync(mx, platform, UsableBindings(profile));
+        _engine = await ButtonEngine.StartAsync(mx, platform, UsableBindings(_settings));
         _engine.Failed += error => Log.Write($"Running an action failed: {error.Message}");
-        _engine.GestureFired += (cid, direction) => Published?.Invoke("gesture", new GestureEvent(ButtonId(cid), direction));
+        _engine.GestureFired += (cid, path, ran) => Published?.Invoke("gesture",
+            new GestureEvent(ButtonId(cid), path.Count > 0 ? path[^1] : null, path, ran ? "fire" : "step"));
+        _engine.ClickFired += (cid, count) => Published?.Invoke("click", new ClickEvent(ButtonId(cid), count));
+        _engine.MultiClickMs = _settings.MultiClickMs;
 
         if (!mx.Has(FeatureIds.ThumbWheel))
             return;
@@ -186,17 +193,18 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
     }
 
     // A binding this platform can't run is skipped rather than stopping the others.
-    private IEnumerable<ButtonBinding> UsableBindings(Profile profile) => profile.AllBindings.Where(b => b.Problem(platform) is null);
+    private IEnumerable<ButtonBinding> UsableBindings(AgentSettings settings) =>
+        settings.ResolvedBindings.Where(b => b.Problem(platform) is null);
 
     private ThumbWheelSettings UsableWheel(Profile profile) =>
         profile.Wheel.Problem(platform) is null ? profile.Wheel : ThumbWheelSettings.Default;
 
-    /// <summary>Runs a profile on the connected mouse, writing only what differs from what's running.</summary>
-    private async Task ApplyProfileAsync(Profile profile)
+    /// <summary>Runs the active profile on the connected mouse, writing only what differs from what's running.</summary>
+    private async Task ApplyProfileAsync(AgentSettings settings)
     {
-        await _engine!.UpdateAsync(UsableBindings(profile));
+        await _engine!.UpdateAsync(UsableBindings(settings));
         if (_thumb is not null)
-            await _thumb.UpdateAsync(UsableWheel(profile));
+            await _thumb.UpdateAsync(UsableWheel(settings.Active));
     }
 
     private void OnDeviceEvent(HidppEvent e)
@@ -334,6 +342,18 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
                 store.Save(_settings);
                 ApplyLoginItem();
                 break;
+            case "setMultiClickMs":
+                int ms = args.GetProperty("ms").GetInt32();
+                if (ms is < AgentSettings.MinMultiClickMs or > AgentSettings.MaxMultiClickMs)
+                    throw new ArgumentException(
+                        $"The multi-click window is {AgentSettings.MinMultiClickMs} to {AgentSettings.MaxMultiClickMs} ms.");
+                await _queue.RunAsync(async () =>
+                {
+                    await ChangeSettingsAsync(s => s with { MultiClickMs = ms }, apply: false);
+                    if (_engine is not null)
+                        _engine.MultiClickMs = ms;
+                });
+                break;
             case "startKeyCapture":
                 LazyInitializer.EnsureInitialized(ref _recorder, CreateRecorder).Start();
                 return null;
@@ -380,6 +400,26 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
                     return s with { Profiles = rest, ActiveProfile = s.Active.Id == doomed ? rest[0].Id : s.Active.Id };
                 }));
                 break;
+            case "setGesturePreset":
+                var preset = args.GetProperty("preset").Deserialize(AgentJson.Default.GesturePreset)
+                    ?? throw new ArgumentException("Missing the gesture preset.");
+                PresetArg(preset);
+                await _queue.RunAsync(() => ChangeSettingsAsync(s => s with
+                {
+                    GesturePresets = s.GesturePresets?.Any(p => p.Id == preset.Id) == true
+                        ? s.GesturePresets.Select(p => p.Id == preset.Id ? preset : p).ToArray()
+                        : [.. s.GesturePresets ?? [], preset],
+                }));
+                break;
+            case "deleteGesturePreset":
+                // A built-in one goes back to how it came. Buttons keep pointing at a deleted one and run just their
+                // clicks, so putting it back with the same ID, as undo does, brings their moves back too.
+                var gone = args.GetProperty("id").GetString() ?? "";
+                await _queue.RunAsync(() => ChangeSettingsAsync(s => s with
+                {
+                    GesturePresets = (s.GesturePresets ?? []).Where(p => p.Id != gone).ToArray(),
+                }));
+                break;
             default:
                 // A setting: its arguments are checked now, and its work waits its turn, giving way to a newer change.
                 await _queue.RunLatestAsync(method, Prepare(method, args));
@@ -405,6 +445,8 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
                 {
                     if (binding.Problem(platform) is { } problem)
                         throw new ArgumentException($"{binding.Button}: {problem}");
+                    if (binding is { IsGesture: true, Gesture: null, Preset: { } preset } && _settings.FindPreset(preset) is null)
+                        throw new ArgumentException($"{binding.Button}: that gesture preset was deleted.");
                 }
                 var distinct = bindings.DistinctBy(b => b.Button.ToLowerInvariant()).ToArray();
                 return () => ChangeSettingsAsync(s => s.WithActive(p => p with { Bindings = distinct }));
@@ -501,6 +543,18 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
     private Profile FindProfile(string id) =>
         _settings.AllProfiles.FirstOrDefault(p => p.Id == id) ?? throw new ArgumentException($"There's no profile '{id}'.");
 
+    private void PresetArg(GesturePreset preset)
+    {
+        if (preset.Id.Length is 0 or > 40 || !preset.Id.All(c => c is '-' or '_' || char.IsAsciiLetterOrDigit(c)))
+            throw new ArgumentException($"'{preset.Id}' isn't a preset ID.");
+        if (preset.Problem(platform) is { } problem)
+            throw new ArgumentException(problem);
+        if (PresetLibrary.BuiltIn.FirstOrDefault(p => p.Id == preset.Id) is { } builtIn && builtIn.Name != preset.Name)
+            throw new ArgumentException("A built-in preset keeps its name. Duplicate it to name your own.");
+        if (preset.Icon is { } icon && !(icon.Length is > 0 and <= 40 && icon.All(c => c is '-' or (>= 'a' and <= 'z') or (>= '0' and <= '9'))))
+            throw new ArgumentException($"'{icon}' isn't an icon name.");
+    }
+
     private static string ProfileName(JsonElement args) =>
         args.GetProperty("name").GetString()?.Trim() is { Length: > 0 } name ? name : throw new ArgumentException("A profile needs a name.");
 
@@ -531,14 +585,14 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
         {
             try
             {
-                await ApplyProfileAsync(next.Active);
+                await ApplyProfileAsync(next);
             }
             catch (Exception error)
             {
                 Log.Write($"Applying the profile failed, putting back the one before: {error.Message}");
                 try
                 {
-                    await ApplyProfileAsync(previous.Active);
+                    await ApplyProfileAsync(previous);
                 }
                 catch (Exception again)
                 {

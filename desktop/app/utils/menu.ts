@@ -14,12 +14,11 @@ export interface MenuAction {
 /** What `UiContextMenu` lists, top to bottom; a separator splits it into groups. */
 export type MenuEntry = MenuAction | "separator";
 
-/** Copies text to the clipboard and says so. */
+/** Copies text to the clipboard, saying so only if it can't. */
 export async function copyText(text: string, what: string) {
   try {
     await navigator.clipboard.writeText(text);
-    showToast(`Copied ${what}`, "neutral", { key: "copy" });
   } catch {
-    showToast(`Couldn't copy the ${what}`, "error", { key: "copy" });
+    reportFailure(`Couldn't copy the ${what}`);
   }
 }

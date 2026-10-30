@@ -66,8 +66,7 @@ const editing = ref<string | null>(null);
 
 async function choose(profile: ProfileSummary) {
   if (profile.id === activeId.value) return;
-  if (await attempt("switchProfile", { id: profile.id }, "Couldn't switch profiles"))
-    showToast(`Switched to ${profile.name}`, "neutral", { key: "profile" });
+  await attempt("switchProfile", { id: profile.id }, "Couldn't switch profiles");
 }
 
 // A new profile is active straight away and opens for naming, the way a new folder does.
@@ -81,8 +80,7 @@ async function create(source?: ProfileSummary) {
 }
 
 async function remove(profile: ProfileSummary) {
-  if (await attempt("deleteProfile", { id: profile.id }, "Couldn't delete the profile"))
-    showToast(`Deleted ${profile.name}`, "neutral", { key: "profile" });
+  await attempt("deleteProfile", { id: profile.id }, "Couldn't delete the profile");
 }
 
 function menuFor(profile: ProfileSummary): MenuEntry[] {

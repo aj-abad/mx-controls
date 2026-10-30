@@ -1,4 +1,4 @@
-import type { ButtonAction, GestureActions } from "~/composables/useAgent";
+import type { ButtonAction } from "~/composables/useAgent";
 
 const IS_MAC = navigator.userAgent.includes("Mac");
 /** The modifier for app shortcuts: Ctrl, or ⌘ on a Mac. */
@@ -18,15 +18,10 @@ export const MOUSE_BUTTONS: Record<string, string> = {
   middle: "Middle click",
 };
 
-export const GESTURE_PARTS: { id: keyof GestureActions; label: string; glyph: string }[] = [
-  { id: "click", label: "Click", glyph: "•" },
-  { id: "up", label: "Up", glyph: "↑" },
-  { id: "down", label: "Down", glyph: "↓" },
-  { id: "left", label: "Left", glyph: "←" },
-  { id: "right", label: "Right", glyph: "→" },
-];
-
 export const NOTHING: ButtonAction = { type: "none" };
+
+/** Whether an optional action, such as a double click, is set; "none" counts as unset. */
+export const hasAction = (action: ButtonAction | null | undefined): action is ButtonAction => !!action && action.type !== "none";
 
 /** A named action the picker offers, so people choose "Copy" rather than build Ctrl + C. */
 export interface Preset {
@@ -97,33 +92,6 @@ const PRESETS_BY_IDENTITY = new Map(PRESETS.map((preset) => [identity(preset.act
 
 export const presetFor = (action: ButtonAction) => PRESETS_BY_IDENTITY.get(identity(action));
 
-/** A gesture filled in one go: a preset ID for each part, and the parts that repeat as the movement keeps going. */
-export interface GesturePreset {
-  id: string;
-  label: string;
-  parts: Record<keyof GestureActions, string>;
-  repeating?: (keyof GestureActions)[];
-}
-
-export const GESTURE_PRESETS: GesturePreset[] = [
-  {
-    id: "desktops",
-    label: "Desktops",
-    parts: { click: "taskView", up: "taskView", down: "showDesktop", left: "desktopLeft", right: "desktopRight" },
-  },
-  {
-    id: "browser",
-    label: "Browser",
-    parts: { click: "reopenTab", up: "newTab", down: "closeTab", left: "back", right: "forward" },
-  },
-  {
-    id: "media",
-    label: "Media",
-    parts: { click: "playPause", up: "volumeUp", down: "volumeDown", left: "previousTrack", right: "nextTrack" },
-    repeating: ["up", "down"],
-  },
-];
-
 export function chordLabel(keys: readonly string[] | null | undefined) {
   return keys?.length ? keys.map(keyLabel).join(" + ") : "No keys";
 }
@@ -134,7 +102,7 @@ export function describeAction(action: ButtonAction) {
   if (preset) return preset.label + repeat;
   switch (action.type) {
     case "hold":
-      return `Hold ${chordLabel(action.keys)}`;
+      return `${chordLabel(action.keys)} key`;
     case "press":
       return chordLabel(action.keys) + repeat;
     case "system":

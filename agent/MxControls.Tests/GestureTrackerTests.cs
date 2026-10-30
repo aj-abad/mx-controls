@@ -102,6 +102,30 @@ public class GestureTrackerTests
     }
 
     [Fact]
+    public void ARepeatingDirectionLocksThePressToItsAxis()
+    {
+        var tracker = Pressed(repeat: true);
+        Assert.Equal(GestureDirection.Up, Move(tracker, 0, -100));
+        for (int i = 0; i < 5; i++)
+            Assert.Null(Move(tracker, -100, 0));
+        Assert.Null(Move(tracker, 300, 0, afterMs: GestureTracker.PauseMs));
+        Assert.Null(Move(tracker, -60, 40));
+        Assert.Equal(GestureDirection.Down, Move(tracker, -60, 40));
+    }
+
+    [Fact]
+    public void OnlyARepeatingDirectionLocks()
+    {
+        var tracker = new GestureTracker();
+        tracker.Reset(direction => direction is GestureDirection.Up or GestureDirection.Down);
+        Assert.Null(Move(tracker, -400, 300));
+        Assert.Equal(GestureDirection.Left, Move(tracker, -150, 0));
+        Assert.Equal(GestureDirection.Up, Move(tracker, 0, -150));
+        Assert.Null(Move(tracker, 150, 0));
+        Assert.Null(Move(tracker, 150, 0));
+    }
+
+    [Fact]
     public void TurningFiresTheNewDirection()
     {
         var tracker = Pressed();
@@ -175,6 +199,162 @@ public class GestureTrackerTests
         Assert.Null(Move(tracker, 130, 0));
         Assert.True(tracker.IsClick);
         Assert.Equal(GestureDirection.Right, Move(tracker, 400, 0));
+    }
+
+    // Right leads on: one more step right, which turns up or down. Up and left are leaves, as today.
+    private static readonly GestureActions Paths = new(
+        ButtonAction.Nothing, new GestureStep(ActionTypes.Press, ["KeyU"]), GestureStep.Nothing, new GestureStep(ActionTypes.Press, ["KeyL"]),
+        new GestureStep(ActionTypes.None, Right: new GestureStep(ActionTypes.None,
+            Up: new GestureStep(ActionTypes.Press, ["KeyT"]), Down: new GestureStep(ActionTypes.Press, ["KeyB"]))));
+
+    // At 1000 DPI and 6 mm spacing, the first step is at 79 counts and the second at 315.
+    private GestureTracker OnPaths()
+    {
+        var tracker = new GestureTracker();
+        tracker.Reset(Paths);
+        Assert.Null(Move(tracker, -400, 300));
+        return tracker;
+    }
+
+    private static string Keys(GestureTracker tracker) => string.Join("+", tracker.Step?.Keys ?? []);
+
+    [Fact]
+    public void ADirectionThatLeadsOnStartsAPathInsteadOfFiring()
+    {
+        var tracker = OnPaths();
+        Assert.Null(Move(tracker, 100, 0));
+        Assert.Equal(PathChange.Reached, tracker.Change);
+        Assert.Equal([GestureDirection.Right], tracker.Path);
+        Assert.Null(tracker.Direction);
+        Assert.False(tracker.IsClick);
+    }
+
+    [Fact]
+    public void EachStepOfARunIsOneSpacingFurther()
+    {
+        var tracker = OnPaths();
+        Move(tracker, 100, 0);
+        Assert.Null(Move(tracker, 200, 0));
+        Assert.Equal(PathChange.None, tracker.Change);
+        Move(tracker, 30, 0);
+        Assert.Equal(PathChange.ReachedBranch, tracker.Change);
+        Assert.Equal([GestureDirection.Right, GestureDirection.Right], tracker.Path);
+    }
+
+    [Fact]
+    public void ABranchTurnsAtRightAngles()
+    {
+        var tracker = OnPaths();
+        Move(tracker, 100, 0);
+        Move(tracker, 230, 0);
+        Move(tracker, 0, -40);
+        Assert.Equal(2, tracker.Path.Count);
+        Move(tracker, 0, -40);
+        Assert.Equal([GestureDirection.Right, GestureDirection.Right, GestureDirection.Up], tracker.Path);
+        Assert.Equal("KeyT", Keys(tracker));
+    }
+
+    [Fact]
+    public void MovingOnwardsAtABranchDoesNotCountAgainstTheTurn()
+    {
+        var tracker = OnPaths();
+        Move(tracker, 100, 0);
+        Move(tracker, 230, 0);
+        Move(tracker, 300, 0);
+        Assert.Equal(2, tracker.Path.Count);
+        Move(tracker, 0, 90);
+        Assert.Equal("KeyB", Keys(tracker));
+    }
+
+    [Fact]
+    public void ADiagonalAtABranchTurnsNowhere()
+    {
+        var tracker = OnPaths();
+        Move(tracker, 100, 0);
+        Move(tracker, 230, 0);
+        Move(tracker, -50, -80);
+        Assert.Equal(2, tracker.Path.Count);
+    }
+
+    [Fact]
+    public void MovementAcrossARunIsDropped()
+    {
+        var tracker = OnPaths();
+        Move(tracker, 100, 0);
+        Move(tracker, 0, -200);
+        Move(tracker, 0, 400);
+        Assert.Equal([GestureDirection.Right], tracker.Path);
+    }
+
+    [Fact]
+    public void BackingOffReturnsToTheStepBeforeAfterTheHysteresis()
+    {
+        var tracker = OnPaths();
+        Move(tracker, 100, 0);
+        Move(tracker, 230, 0);
+        Move(tracker, -40, 0);
+        Assert.Equal(2, tracker.Path.Count);
+        Move(tracker, -40, 0);
+        Assert.Equal(PathChange.BackedOff, tracker.Change);
+        Assert.Equal([GestureDirection.Right], tracker.Path);
+    }
+
+    [Fact]
+    public void BackingOutOfAPathCancelsIt()
+    {
+        var tracker = OnPaths();
+        Move(tracker, 100, 0);
+        Move(tracker, -70, 0);
+        Assert.Empty(tracker.Path);
+        Assert.Null(tracker.Step);
+        Assert.False(tracker.IsClick);
+    }
+
+    [Fact]
+    public void AfterBackingOutAnotherDirectionCanBePicked()
+    {
+        var tracker = OnPaths();
+        Move(tracker, 100, 0);
+        Move(tracker, -70, 0);
+        Assert.Null(Move(tracker, -70, 0));
+        Assert.Equal(GestureDirection.Left, Move(tracker, -50, 0));
+    }
+
+    [Fact]
+    public void LeavesBesidePathsStillFireAsTheyAreReached()
+    {
+        var tracker = OnPaths();
+        Assert.Equal(GestureDirection.Up, Move(tracker, 0, -100));
+        Assert.Empty(tracker.Path);
+    }
+
+    [Fact]
+    public void AStrokeCanTurnIntoAPath()
+    {
+        var tracker = OnPaths();
+        Assert.Equal(GestureDirection.Up, Move(tracker, 0, -100));
+        Assert.Null(Move(tracker, 100, 0));
+        Assert.Equal([GestureDirection.Right], tracker.Path);
+        Move(tracker, 230, 0);
+        Assert.Equal(2, tracker.Path.Count);
+    }
+
+    [Fact]
+    public void AJunctionHasNoKeys()
+    {
+        var tracker = OnPaths();
+        Move(tracker, 100, 0);
+        Assert.False(tracker.Step!.Action.IsSet);
+    }
+
+    [Fact]
+    public void ARunStopsAtItsLastStep()
+    {
+        var tracker = OnPaths();
+        Move(tracker, 100, 0);
+        Move(tracker, 230, 0);
+        Move(tracker, 600, 0);
+        Assert.Equal(2, tracker.Path.Count);
     }
 
     // Swipes recorded with `mx gestures --trace` on an MX Master 4, in this order: slow drags, flicks, diagonals,

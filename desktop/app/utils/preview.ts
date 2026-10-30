@@ -1,13 +1,54 @@
-import type { AgentState } from "~/composables/useAgent";
+import type { AgentState, ButtonAction, ButtonBinding, GesturePreset, GestureStep } from "~/composables/useAgent";
+
+const step = (id: string, more: Partial<GestureStep> = {}): GestureStep => ({ ...(presetById(id)!.action as ButtonAction), ...more });
+const NONE: GestureStep = { type: "none" };
+
+/** The agent's built-in presets, as `PresetLibrary.BuiltIn` has them. */
+const BUILT_IN: GesturePreset[] = [
+  { id: "desktops", name: "Desktops", up: step("taskView"), down: step("showDesktop"), left: step("desktopLeft"), right: step("desktopRight"), spacingMm: 6 },
+  { id: "browser", name: "Browser", up: step("newTab"), down: step("closeTab"), left: step("back"), right: step("forward"), spacingMm: 6 },
+  {
+    id: "media",
+    name: "Media",
+    up: step("volumeUp", { repeat: true }),
+    down: step("volumeDown", { repeat: true }),
+    left: step("previousTrack"),
+    right: step("nextTrack"),
+    spacingMm: 6,
+  },
+];
+
+const usesOf = (profile: string, bindings: ButtonBinding[]) =>
+  bindings.filter((b) => b.mode === "gesture" && b.preset).map((b) => ({ preset: b.preset!, profile, button: b.button }));
 
 /** Sample state for previewing the app in a browser, outside Tauri. It never talks to a mouse. */
 export function previewState(): AgentState {
+  const bindings: ButtonBinding[] = [
+    { button: "middle", mode: "action", action: { type: "hold", keys: ["ShiftLeft"] } },
+    { button: "gesture", mode: "gesture", action: { type: "press", keys: ["ControlLeft", "KeyC"] }, preset: "tiling" },
+  ];
   return {
     connected: true,
     optionsPlusRunning: true,
     error: null,
     startAtLogin: true,
     revision: 0,
+    multiClickMs: 300,
+    builtInPresets: BUILT_IN,
+    gesturePresets: [
+      ...BUILT_IN,
+      {
+        id: "tiling",
+        name: "Window tiling",
+        up: { type: "press", keys: ["MetaLeft", "ArrowUp"] },
+        down: { type: "press", keys: ["MetaLeft", "ArrowDown"] },
+        left: { ...NONE, left: step("desktopLeft") },
+        right: { ...NONE, right: { ...NONE, up: { type: "press", keys: ["MetaLeft", "ArrowRight"] }, down: step("desktopRight") } },
+        spacingMm: 6,
+      },
+    ],
+    presetUses: [...usesOf("default", bindings), { preset: "desktops", profile: "games", button: "gesture" }],
+    bindings,
     thumbWheel: { mode: "scroll", speed: 100, inverted: false },
     profiles: [
       { id: "default", name: "Default", icon: null },
@@ -15,20 +56,6 @@ export function previewState(): AgentState {
       { id: "games", name: "Games", icon: "game-controller" },
     ],
     activeProfile: "default",
-    bindings: [
-      { button: "middle", mode: "action", action: { type: "hold", keys: ["ShiftLeft"] } },
-      {
-        button: "gesture",
-        mode: "gesture",
-        gesture: {
-          click: { type: "press", keys: ["ControlLeft", "KeyC"] },
-          up: { type: "press", keys: ["ControlLeft", "KeyV"] },
-          down: { type: "press", keys: ["Delete"] },
-          left: { type: "press", keys: ["ControlLeft", "KeyZ"] },
-          right: { type: "press", keys: ["ControlLeft", "KeyY"] },
-        },
-      },
-    ],
     device: {
       name: "MX Master 4 for Mac",
       productId: "B042",
@@ -72,10 +99,28 @@ export function previewState(): AgentState {
 export function previewCall(state: AgentState, method: string, params: Record<string, unknown>): AgentState {
   const device = state.device!;
   switch (method) {
-    case "setBindings":
-      return { ...state, bindings: params.bindings as AgentState["bindings"] };
+    case "setBindings": {
+      const bindings = params.bindings as ButtonBinding[];
+      const others = state.presetUses.filter((use) => use.profile !== state.activeProfile);
+      return { ...state, bindings, presetUses: [...others, ...usesOf(state.activeProfile, bindings)] };
+    }
+    case "setGesturePreset": {
+      const preset = params.preset as GesturePreset;
+      const known = state.gesturePresets.some((p) => p.id === preset.id);
+      const gesturePresets = known ? state.gesturePresets.map((p) => (p.id === preset.id ? preset : p)) : [...state.gesturePresets, preset];
+      return { ...state, gesturePresets };
+    }
+    case "deleteGesturePreset": {
+      const builtIn = state.builtInPresets.find((p) => p.id === params.id);
+      const gesturePresets = builtIn
+        ? state.gesturePresets.map((p) => (p.id === builtIn.id ? builtIn : p))
+        : state.gesturePresets.filter((p) => p.id !== params.id);
+      return { ...state, gesturePresets };
+    }
     case "setStartAtLogin":
       return { ...state, startAtLogin: params.enabled as boolean };
+    case "setMultiClickMs":
+      return { ...state, multiClickMs: params.ms as number };
     case "setDpi":
       return { ...state, device: { ...device, dpi: { ...device.dpi, current: params.dpi as number } } };
     case "setSmartShift":

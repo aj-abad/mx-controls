@@ -20,6 +20,9 @@ public sealed record ButtonAction(
 {
     public static readonly ButtonAction Nothing = new(ActionTypes.None);
 
+    [JsonIgnore]
+    public bool IsSet => Type != ActionTypes.None;
+
     public string? Problem(IPlatform platform) => Type switch
     {
         ActionTypes.None => null,
@@ -59,10 +62,22 @@ public static class SystemActions
     public const string ZoomOut = "zoomOut";
 }
 
-/// <summary>A gesture: an action for a click without movement, and one for each direction.</summary>
-public sealed record GestureActions(ButtonAction Click, ButtonAction Up, ButtonAction Down, ButtonAction Left, ButtonAction Right)
+/// <summary>
+/// A gesture: an action for a click without movement, and a step for each direction, which can lead further.
+/// Double and triple clicks are null when unset.
+/// </summary>
+/// <param name="SpacingMm">Distance between steps in a run, <see cref="MinSpacingMm"/> to <see cref="MaxSpacingMm"/>.</param>
+public sealed record GestureActions(
+    ButtonAction Click, GestureStep Up, GestureStep Down, GestureStep Left, GestureStep Right,
+    ButtonAction? DoubleClick = null, ButtonAction? TripleClick = null, double SpacingMm = GestureActions.DefaultSpacingMm)
 {
-    public ButtonAction this[GestureDirection direction] => direction switch
+    public const double DefaultSpacingMm = 6;
+    public const double MinSpacingMm = 4;
+    public const double MaxSpacingMm = 15;
+    public const int MaxRun = 3;
+    public const int MaxTurns = 2;
+
+    public GestureStep this[GestureDirection direction] => direction switch
     {
         GestureDirection.Up => Up,
         GestureDirection.Down => Down,
@@ -70,20 +85,163 @@ public sealed record GestureActions(ButtonAction Click, ButtonAction Up, ButtonA
         _ => Right,
     };
 
-    [JsonIgnore]
-    public IEnumerable<ButtonAction> All => [Click, Up, Down, Left, Right];
+    /// <summary>
+    /// What's wrong with the directions and spacing, leaving the clicks out; the rules are the same for a gesture
+    /// preset, which has no clicks.
+    /// </summary>
+    public string? MovesProblem(IPlatform platform)
+    {
+        if (SpacingMm is < MinSpacingMm or > MaxSpacingMm)
+            return $"The spacing between steps is {MinSpacingMm} to {MaxSpacingMm} mm.";
+        foreach (var direction in GestureStep.Directions)
+        {
+            if (StepProblem(this[direction], direction, run: 1, turns: 0, platform) is { } problem)
+                return problem;
+        }
+        return null;
+    }
+
+    private static string? StepProblem(GestureStep step, GestureDirection came, int run, int turns, IPlatform platform)
+    {
+        if (step.Action.Problem(platform) is { } problem)
+            return problem;
+        // Only the first four directions run as they're reached; every other step taps when the button comes up.
+        if ((run > 1 || turns > 0 || !step.IsLeaf) && (step.Type == ActionTypes.Hold || step.Repeat))
+            return "Only a first direction with nothing beyond it can hold keys or repeat.";
+        if (step[GestureStep.Opposite(came)] is not null)
+            return "A step can't lead back the way it came.";
+        bool extends = step[came] is not null;
+        if (extends && GestureStep.Across(came).Any(d => step[d] is not null))
+            return "A step can go further or turn, but not both.";
+        foreach (var next in GestureStep.Directions)
+        {
+            if (step[next] is not { } beyond)
+                continue;
+            int nextRun = next == came ? run + 1 : 1, nextTurns = next == came ? turns : turns + 1;
+            if (nextRun > MaxRun)
+                return $"A run is at most {MaxRun} steps.";
+            if (nextTurns > MaxTurns)
+                return $"A path turns at most {MaxTurns} times.";
+            if (StepProblem(beyond, next, nextRun, nextTurns, platform) is { } deeper)
+                return deeper;
+        }
+        return null;
+    }
 }
 
-/// <summary>What one button does: a single <see cref="Action"/>, or a <see cref="Gesture"/>.</summary>
+/// <summary>
+/// A step of a gesture: its action, in the same fields as <see cref="ButtonAction"/> so gestures from before paths
+/// read unchanged, and the steps beyond it: the same direction to extend, or the two at right angles to branch.
+/// </summary>
+public sealed record GestureStep(
+    string Type, IReadOnlyList<string>? Keys = null, string? System = null, bool Repeat = false, string? Mouse = null,
+    GestureStep? Up = null, GestureStep? Down = null, GestureStep? Left = null, GestureStep? Right = null)
+{
+    public static readonly GestureStep Nothing = new(ActionTypes.None);
+
+    public static readonly GestureDirection[] Directions =
+        [GestureDirection.Up, GestureDirection.Down, GestureDirection.Left, GestureDirection.Right];
+
+    [JsonIgnore]
+    public ButtonAction Action => new(Type, Keys, System, Repeat, Mouse);
+
+    [JsonIgnore]
+    public bool IsLeaf => Up is null && Down is null && Left is null && Right is null;
+
+    public GestureStep? this[GestureDirection direction] => direction switch
+    {
+        GestureDirection.Up => Up,
+        GestureDirection.Down => Down,
+        GestureDirection.Left => Left,
+        _ => Right,
+    };
+
+    /// <summary>Whether the steps beyond this one turn off the way it was reached.</summary>
+    public bool Branches(GestureDirection came) => Across(came).Any(d => this[d] is not null);
+
+    public static GestureStep Of(ButtonAction action) => new(action.Type, action.Keys, action.System, action.Repeat, action.Mouse);
+
+    public static GestureDirection Opposite(GestureDirection direction) => direction switch
+    {
+        GestureDirection.Up => GestureDirection.Down,
+        GestureDirection.Down => GestureDirection.Up,
+        GestureDirection.Left => GestureDirection.Right,
+        _ => GestureDirection.Left,
+    };
+
+    public static GestureDirection[] Across(GestureDirection direction) =>
+        direction is GestureDirection.Up or GestureDirection.Down
+            ? [GestureDirection.Left, GestureDirection.Right]
+            : [GestureDirection.Up, GestureDirection.Down];
+}
+
+/// <summary>
+/// Saved moves that buttons follow: editing one changes every button that uses it, in every profile. It has no
+/// clicks; those stay on each button. Built-in presets keep their IDs, so an edited one is stored under the same ID.
+/// </summary>
+/// <param name="Icon">A Phosphor icon name, as profiles have, or null.</param>
+public sealed record GesturePreset(
+    string Id, string Name, GestureStep Up, GestureStep Down, GestureStep Left, GestureStep Right,
+    double SpacingMm = GestureActions.DefaultSpacingMm, string? Icon = null)
+{
+    public GestureActions With(ButtonAction click, ButtonAction? doubleClick, ButtonAction? tripleClick) =>
+        new(click, Up, Down, Left, Right, doubleClick, tripleClick, SpacingMm);
+
+    public string? Problem(IPlatform platform) =>
+        string.IsNullOrWhiteSpace(Name) ? "A gesture preset needs a name." : With(ButtonAction.Nothing, null, null).MovesProblem(platform);
+}
+
+/// <summary>
+/// What one, two and three quick clicks run. A count without an action is null; <see cref="Most"/> is the
+/// highest count with one, so a click only waits for another when a higher count is set.
+/// </summary>
+public sealed record ClickActions(ButtonAction Single, ButtonAction? Double, ButtonAction? Triple)
+{
+    public int Most => Triple is { IsSet: true } ? 3 : Double is { IsSet: true } ? 2 : 1;
+
+    public ButtonAction this[int count] => count switch
+    {
+        3 => Triple ?? ButtonAction.Nothing,
+        2 => Double ?? ButtonAction.Nothing,
+        _ => Single,
+    };
+
+    public string? Problem(IPlatform platform)
+    {
+        if (Triple is { IsSet: true } && Double is not { IsSet: true })
+            return "A triple click needs a double click too.";
+        if (Most > 1 && new[] { Single, Double, Triple }.Any(a => a is { Type: ActionTypes.Hold } or { Repeat: true }))
+            return "With a double click set, each click runs once, so none of them can hold keys or repeat.";
+        return new[] { Double, Triple }.Select(a => a?.Problem(platform)).FirstOrDefault(p => p is not null);
+    }
+}
+
+/// <summary>
+/// What one button does: a single <see cref="Action"/>, or a gesture. A gesture follows a <see cref="Preset"/>, with
+/// <see cref="Action"/> and the double and triple clicks as its clicks; <see cref="Resolve"/> fills in
+/// <see cref="Gesture"/> from the preset before the engine runs it. Settings from before presets carry the
+/// <see cref="Gesture"/> itself, clicks included, until they're migrated.
+/// </summary>
 /// <param name="Button">A button ID such as "gesture"; see <see cref="Features.ReprogControls.KnownButtons"/>.</param>
 /// <param name="Mode"><c>action</c> or <c>gesture</c>.</param>
-public sealed record ButtonBinding(string Button, string Mode, ButtonAction? Action = null, GestureActions? Gesture = null)
+/// <param name="DoubleClick">What two quick clicks run, or null. A gesture carried whole keeps its own.</param>
+/// <param name="TripleClick">What three quick clicks run, or null.</param>
+/// <param name="Preset">For <c>gesture</c>: the ID of the <see cref="GesturePreset"/> it follows.</param>
+public sealed record ButtonBinding(
+    string Button, string Mode, ButtonAction? Action = null, GestureActions? Gesture = null,
+    ButtonAction? DoubleClick = null, ButtonAction? TripleClick = null, string? Preset = null)
 {
     public const string ActionMode = "action";
     public const string GestureMode = "gesture";
 
     [JsonIgnore]
     public bool IsGesture => Mode == GestureMode;
+
+    /// <summary>The click actions of whichever mode this is; only call it on a binding without a problem.</summary>
+    [JsonIgnore]
+    public ClickActions Clicks => IsGesture && Gesture is { } gesture
+        ? new(gesture.Click, gesture.DoubleClick, gesture.TripleClick)
+        : new(Action!, DoubleClick, TripleClick);
 
     public string? Problem(IPlatform platform)
     {
@@ -92,11 +250,27 @@ public sealed record ButtonBinding(string Button, string Mode, ButtonAction? Act
         return Mode switch
         {
             ActionMode when Action is null => "An action binding needs an action.",
-            ActionMode => Action.Problem(platform),
-            GestureMode when Gesture is null => "A gesture binding needs its five actions.",
-            GestureMode => Gesture.All.Select(a => a.Problem(platform)).FirstOrDefault(p => p is not null),
+            ActionMode => Action.Problem(platform) ?? Clicks.Problem(platform),
+            GestureMode when Gesture is not null =>
+                Gesture.Click.Problem(platform) ?? Gesture.MovesProblem(platform) ?? Clicks.Problem(platform),
+            GestureMode when Preset is null => "A gesture binding needs a preset or its five actions.",
+            GestureMode when Action is null => "A gesture binding needs an action for its click.",
+            GestureMode => Action.Problem(platform) ?? Clicks.Problem(platform),
             _ => $"Unknown mode '{Mode}'.",
         };
+    }
+
+    /// <summary>
+    /// This binding as the engine runs it: a gesture with its preset's moves filled in. One whose preset has gone
+    /// is just its clicks.
+    /// </summary>
+    public ButtonBinding Resolve(Func<string, GesturePreset?> find)
+    {
+        if (!IsGesture || Gesture is not null || Preset is null || Action is null)
+            return this;
+        return find(Preset) is { } preset
+            ? this with { Gesture = preset.With(Action, DoubleClick, TripleClick) }
+            : this with { Mode = ActionMode };
     }
 
     public static ButtonBinding Hold(string button, params string[] keys) =>

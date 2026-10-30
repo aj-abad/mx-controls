@@ -29,9 +29,18 @@ public sealed class ButtonEngine : IAsyncDisposable
     private HashSet<ushort> _held = [];
     private ushort? _gestureButton;
     private int _hapticSending;
+    // Per control, made on its first click, and kept so a timer firing late still finds what it belongs to.
+    private readonly Dictionary<ushort, (ClickCounter Counter, Timer Timer)> _clicks = [];
+    private int _multiClickMs = ClickCounter.DefaultWindowMs;
 
-    /// <summary>A gesture fired: control ID and "click", "up", "down", "left" or "right".</summary>
-    public event Action<ushort, string>? GestureFired;
+    /// <summary>
+    /// A gesture's path changed or ran: control ID, the directions taken ("up", "down", "left" or "right", one per
+    /// step), and whether it ran rather than just moved. A first direction with nothing beyond runs as it's reached.
+    /// </summary>
+    public event Action<ushort, IReadOnlyList<string>, bool>? GestureFired;
+
+    /// <summary>A click ran: control ID and 1, 2 or 3 for a single, double or triple click.</summary>
+    public event Action<ushort, int>? ClickFired;
     public event Action<Exception>? Failed;
 
     /// <summary>Waveform played when a gesture direction fires, or null for none.</summary>
@@ -53,6 +62,20 @@ public sealed class ButtonEngine : IAsyncDisposable
         {
             lock (_gate)
                 _tracker.Dpi = value;
+        }
+    }
+
+    /// <summary>How long a click waits for another, on controls with a double or triple click set.</summary>
+    public int MultiClickMs
+    {
+        set
+        {
+            lock (_gate)
+            {
+                _multiClickMs = value;
+                foreach (var (counter, _) in _clicks.Values)
+                    counter.Window = value;
+            }
         }
     }
 
@@ -88,6 +111,8 @@ public sealed class ButtonEngine : IAsyncDisposable
         {
             if (binding.Problem(_platform) is { } problem)
                 throw new ArgumentException(problem, nameof(bindings));
+            if (binding.IsGesture && binding.Gesture is null)
+                throw new ArgumentException($"{binding.Button}: resolve the gesture preset first.", nameof(bindings));
             next[ReprogControls.KnownButtons[binding.Button]] = binding;
         }
 
@@ -99,6 +124,7 @@ public sealed class ButtonEngine : IAsyncDisposable
                 if (next.TryGetValue(cid, out var kept) && kept == binding)
                     continue;
                 _runner.End(cid);
+                DropClicks(cid);
                 if (_gestureButton == cid)
                     _gestureButton = null;
             }
@@ -157,14 +183,20 @@ public sealed class ButtonEngine : IAsyncDisposable
         {
             if (!_bindings.TryGetValue(cid, out var binding))
                 continue;
+            if (_clicks.TryGetValue(cid, out var clicks))
+            {
+                clicks.Timer.Change(Timeout.Infinite, Timeout.Infinite);
+                if (clicks.Counter.Press(Now) is { } late)
+                    RunClicks(cid, late);
+            }
             if (binding.IsGesture)
             {
                 _gestureButton = cid;
-                var gesture = binding.Gesture!;
-                _tracker.Reset(direction => gesture[direction].Repeat);
+                _tracker.Reset(binding.Gesture!);
             }
-            else
+            else if (binding.Clicks.Most == 1)
             {
+                // Nothing waits for a second click, so the action lasts as long as the press, as it always has.
                 _runner.Begin(cid, binding.Action!);
             }
         }
@@ -174,22 +206,112 @@ public sealed class ButtonEngine : IAsyncDisposable
                 continue;
             if (binding.IsGesture && _gestureButton == cid)
             {
-                if (_tracker.IsClick)
+                // A path runs where it ends, as a tap; a step with no action is a junction, and backing out cancels.
+                if (_tracker.Step is { } step)
                 {
-                    _runner.Run(binding.Gesture!.Click);
-                    GestureFired?.Invoke(cid, "click");
+                    _runner.Run(step.Action);
+                    GestureFired?.Invoke(cid, Names(_tracker.Path), true);
                 }
+                else if (_tracker.IsClick)
+                    Click(cid, binding.Clicks);
+                else if (_tracker.Direction is null)
+                    InterruptClicks(cid);
                 _gestureButton = null;
             }
+            else if (!binding.IsGesture && binding.Clicks.Most > 1)
+            {
+                Click(cid, binding.Clicks);
+            }
             _runner.End(cid);
+            if (!binding.IsGesture && binding.Clicks.Most == 1)
+                ClickFired?.Invoke(cid, 1);
         }
         _held = [.. now];
+    }
+
+    /// <summary>A press came up as a click: runs the count it completes, or waits for the next press.</summary>
+    private void Click(ushort cid, ClickActions actions)
+    {
+        if (!_clicks.TryGetValue(cid, out var clicks))
+        {
+            clicks = (new ClickCounter { Window = _multiClickMs }, new Timer(_ => OnClickWindow(cid)));
+            _clicks[cid] = clicks;
+        }
+        if (clicks.Counter.Release(Now, actions.Most) is { } count)
+            RunClicks(cid, count);
+        else
+            WaitForClick(clicks);
+    }
+
+    private void WaitForClick((ClickCounter Counter, Timer Timer) clicks)
+    {
+        if (clicks.Counter.Deadline is { } deadline)
+            clicks.Timer.Change(Math.Max(1, deadline - Now), Timeout.Infinite);
+    }
+
+    private void OnClickWindow(ushort cid)
+    {
+        lock (_gate)
+        {
+            try
+            {
+                if (!_clicks.TryGetValue(cid, out var clicks))
+                    return;
+                if (clicks.Counter.Expire(Now) is { } count)
+                    RunClicks(cid, count);
+                else
+                    // The timer can wake a little before the clock reads the deadline.
+                    WaitForClick(clicks);
+            }
+            catch (Exception error)
+            {
+                Failed?.Invoke(error);
+            }
+        }
+    }
+
+    /// <summary>The press became something other than a click, so clicks waiting for it run first.</summary>
+    private void InterruptClicks(ushort cid)
+    {
+        if (_clicks.TryGetValue(cid, out var clicks) && clicks.Counter.Interrupt() is { } count)
+            RunClicks(cid, count);
+    }
+
+    private void RunClicks(ushort cid, int count)
+    {
+        if (!_bindings.TryGetValue(cid, out var binding))
+            return;
+        _runner.Run(binding.Clicks[count]);
+        ClickFired?.Invoke(cid, count);
+    }
+
+    private void DropClicks(ushort cid)
+    {
+        if (!_clicks.TryGetValue(cid, out var clicks))
+            return;
+        clicks.Timer.Change(Timeout.Infinite, Timeout.Infinite);
+        clicks.Counter.Clear();
     }
 
     private void OnMove(ushort cid, int dx, int dy)
     {
         if (_tracker.Add(dx, dy, Now) is { } direction)
+        {
             Fire(cid, direction);
+            return;
+        }
+        if (_tracker.Change is PathChange.None)
+            return;
+        // Reaching a step that turns feels different, so the hand knows a turn is there without looking.
+        if (GestureHaptic is { } reached)
+            Tap(_tracker.Change switch
+            {
+                PathChange.ReachedBranch => HapticWaveform.DampStateChange,
+                PathChange.BackedOff => HapticWaveform.WhisperCollision,
+                _ => reached,
+            });
+        InterruptClicks(cid);
+        GestureFired?.Invoke(cid, Names(_tracker.Path), false);
     }
 
     /// <summary>
@@ -198,22 +320,36 @@ public sealed class ButtonEngine : IAsyncDisposable
     /// </summary>
     private void Fire(ushort cid, GestureDirection direction)
     {
-        // The tap goes out first so it lands with the action rather than after it. Repeats can fire faster than
-        // the radio carries taps, so one is skipped while the last is still going out.
-        if (GestureHaptic is { } waveform && Interlocked.Exchange(ref _hapticSending, 1) == 0)
-            _ = Task.Run(async () =>
-            {
-                try { await _device.Haptics.TapAsync(waveform); }
-                finally { Volatile.Write(ref _hapticSending, 0); }
-            });
-        var action = _bindings[cid].Gesture![direction];
+        if (GestureHaptic is { } waveform)
+            Tap(waveform);
+        InterruptClicks(cid);
+        var action = _bindings[cid].Gesture![direction].Action;
         _runner.End(cid);
         if (action.Repeat)
             _runner.Run(action);
         else
             _runner.Begin(cid, action);
-        GestureFired?.Invoke(cid, direction.ToString().ToLowerInvariant());
+        GestureFired?.Invoke(cid, [Name(direction)], true);
     }
+
+    /// <summary>
+    /// Plays a haptic tap. It goes out before the action so it lands with it rather than after. Repeats and steps
+    /// can come faster than the radio carries taps, so one is skipped while the last is still going out.
+    /// </summary>
+    private void Tap(HapticWaveform waveform)
+    {
+        if (Interlocked.Exchange(ref _hapticSending, 1) != 0)
+            return;
+        _ = Task.Run(async () =>
+        {
+            try { await _device.Haptics.TapAsync(waveform); }
+            finally { Volatile.Write(ref _hapticSending, 0); }
+        });
+    }
+
+    private static string Name(GestureDirection direction) => direction.ToString().ToLowerInvariant();
+
+    private static string[] Names(IReadOnlyList<GestureDirection> path) => [.. path.Select(Name)];
 
     public async ValueTask DisposeAsync()
     {
@@ -223,6 +359,9 @@ public sealed class ButtonEngine : IAsyncDisposable
             try { _runner.EndAll(); } catch { }
             _held.Clear();
             _gestureButton = null;
+            foreach (var (_, timer) in _clicks.Values)
+                timer.Dispose();
+            _clicks.Clear();
         }
         foreach (var cid in _diverted.Keys)
         {

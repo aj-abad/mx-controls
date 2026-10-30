@@ -2,6 +2,9 @@ namespace MxControls.Actions;
 
 public enum GestureDirection { Up, Down, Left, Right }
 
+/// <summary>How the path changed with the last movement.</summary>
+public enum PathChange { None, Reached, ReachedBranch, BackedOff }
+
 /// <summary>
 /// Turns pointer movement while a gesture button is held into directions. Movement is in sensor counts at the
 /// mouse's DPI, with y growing downwards, as the mouse reports it; times are milliseconds on any steady clock.
@@ -20,9 +23,19 @@ public enum GestureDirection { Up, Down, Left, Right }
 /// pause, when a new stroke starts.
 /// </para>
 /// <para>
+/// A repeating direction also locks the rest of the press to its axis, so turning the volume up and down
+/// never skips a track however much the hand drifts sideways: only movement along the axis counts.
+/// </para>
+/// <para>
 /// The first raw XY report of a press is stale: within 15 ms of the press, an MX Master 4 sends movement
 /// from before it, often a centimetre or more and mostly against the swipe, so it's dropped. Losing a real
 /// first report instead costs one radio interval of travel.
+/// </para>
+/// <para>
+/// A direction whose step leads further starts a path instead of firing. Each further step of a run is one
+/// spacing further on; movement across a run is dropped, and so is movement onwards at a step that turns, so
+/// drift can't pick the wrong way. Backing off along a run returns to the step before, with hysteresis, and
+/// backing out of the first step leaves the path. Nothing on a path runs until release.
 /// </para>
 /// </remarks>
 public sealed class GestureTracker(
@@ -30,6 +43,7 @@ public sealed class GestureTracker(
 {
     public const double DefaultThresholdMm = 2;
     public const double DefaultRepeatStepMm = 4;
+    public const double HysteresisMm = 1.5;
 
     /// <summary>How long a stroke goes without moving on before the next movement starts a new one.</summary>
     public const int PauseMs = 150;
@@ -43,9 +57,26 @@ public sealed class GestureTracker(
     private int _fromX, _fromY;
     private int _firedX, _firedY;
     private GestureDirection? _stroke;
+    private bool? _lockedVertical;
     private long _movedOnAt;
     private bool _stale;
     private Func<GestureDirection, bool> _repeats = _ => false;
+    private GestureActions? _gesture;
+    private double _spacingMm = GestureActions.DefaultSpacingMm;
+
+    // The path as runs: each starts where the step it leaves from was reached. A turn is measured from where the
+    // current step was reached, which follows movement onwards so overshooting a turn doesn't count against it.
+    private readonly List<Run> _runs = [];
+    private int _reachedX, _reachedY;
+    private bool _pathStarted;
+
+    private sealed class Run(GestureDirection direction, int startX, int startY)
+    {
+        public GestureDirection Direction { get; } = direction;
+        public int StartX { get; } = startX;
+        public int StartY { get; } = startY;
+        public List<GestureStep> Steps { get; } = [];
+    }
 
     /// <summary>The sensor's resolution, which distances are converted with.</summary>
     public int Dpi { get; set; } = 1000;
@@ -60,27 +91,59 @@ public sealed class GestureTracker(
     /// Whether a press that has just come up was a click: it fired nothing and moved less than the threshold.
     /// A long diagonal that never picked a direction is neither.
     /// </summary>
-    public bool IsClick => Direction is null && Math.Max(Math.Abs(_x), Math.Abs(_y)) < Counts(thresholdMm);
+    public bool IsClick => Direction is null && !_pathStarted && Math.Max(Math.Abs(_x), Math.Abs(_y)) < Counts(thresholdMm);
+
+    /// <summary>The directions taken on the path so far, one per step; empty when not on a path.</summary>
+    public IReadOnlyList<GestureDirection> Path => [.. _runs.SelectMany(r => Enumerable.Repeat(r.Direction, r.Steps.Count))];
+
+    /// <summary>The step at the end of the path, which runs if the button comes up now; null when not on a path.</summary>
+    public GestureStep? Step => _runs.Count > 0 ? _runs[^1].Steps[^1] : null;
+
+    /// <summary>How the last <see cref="Add"/> changed the path.</summary>
+    public PathChange Change { get; private set; }
 
     /// <param name="repeats">Which directions fire again as the movement keeps going; none if null.</param>
     public void Reset(Func<GestureDirection, bool>? repeats = null)
     {
         _x = _y = _fromX = _fromY = _firedX = _firedY = 0;
         _stroke = null;
+        _lockedVertical = null;
         _stale = true;
         _repeats = repeats ?? (_ => false);
+        _gesture = null;
+        _runs.Clear();
+        _pathStarted = false;
+        Change = PathChange.None;
         Direction = null;
     }
 
-    /// <summary>Returns the direction this movement fires, or null.</summary>
+    /// <summary>Starts a press of this gesture: its first directions with nothing beyond fire as they're reached.</summary>
+    public void Reset(GestureActions gesture)
+    {
+        Reset(direction => gesture[direction] is { IsLeaf: true, Repeat: true });
+        _gesture = gesture;
+        _spacingMm = gesture.SpacingMm;
+    }
+
+    /// <summary>Returns the direction this movement fires, or null. A step reached on a path shows in <see cref="Change"/>.</summary>
     public GestureDirection? Add(int dx, int dy, long now)
     {
+        Change = PathChange.None;
         if (_stale)
         {
             _stale = false;
             _movedOnAt = now;
             return null;
         }
+        if (_runs.Count > 0)
+        {
+            _x += dx;
+            _y += dy;
+            FollowPath();
+            return null;
+        }
+        if (_lockedVertical is { } vertical)
+            (dx, dy) = vertical ? (0, dy) : (dx, 0);
         if (_stroke is not null && now - _movedOnAt >= PauseMs)
         {
             _stroke = null;
@@ -120,13 +183,86 @@ public sealed class GestureTracker(
         var direction = x >= y
             ? vx > 0 ? GestureDirection.Right : GestureDirection.Left
             : vy > 0 ? GestureDirection.Down : GestureDirection.Up;
-        return direction == _stroke ? null : Fire(direction, now);
+        if (direction == _stroke)
+            return null;
+        if (_gesture?[direction] is { IsLeaf: false } first)
+        {
+            // It leads further, so it's the first step of a path, measured from where the movement turned.
+            _pathStarted = true;
+            _stroke = null;
+            Enter(new Run(direction, _fromX, _fromY), first);
+            return null;
+        }
+        return Fire(direction, now);
     }
+
+    private void Enter(Run run, GestureStep step)
+    {
+        if (_runs.LastOrDefault() != run)
+            _runs.Add(run);
+        run.Steps.Add(step);
+        (_reachedX, _reachedY) = (_x, _y);
+        Change = step.Branches(run.Direction) ? PathChange.ReachedBranch : PathChange.Reached;
+    }
+
+    private void FollowPath()
+    {
+        var run = _runs[^1];
+        var (ux, uy) = Unit(run.Direction);
+        int along = (_x - run.StartX) * ux + (_y - run.StartY) * uy;
+        int count = run.Steps.Count;
+
+        // The first step can't keep the whole hysteresis, or backing out would need to pass where the press began.
+        double hysteresis = count == 1 ? Math.Min(HysteresisMm, thresholdMm / 2) : HysteresisMm;
+        if (along < Reach(count) - Counts(hysteresis))
+        {
+            run.Steps.RemoveAt(count - 1);
+            Change = PathChange.BackedOff;
+            if (run.Steps.Count > 0)
+                return;
+            _runs.RemoveAt(_runs.Count - 1);
+            // Back on the step the run left from, which is where a turn from it is measured.
+            (_reachedX, _reachedY) = (run.StartX, run.StartY);
+            if (_runs.Count == 0)
+                (_fromX, _fromY) = (run.StartX, run.StartY);
+            return;
+        }
+
+        var step = run.Steps[^1];
+        if (step[run.Direction] is { } further)
+        {
+            if (count < GestureActions.MaxRun && along >= Reach(count + 1))
+                Enter(run, further);
+            return;
+        }
+        if (!step.Branches(run.Direction))
+            return;
+
+        int reached = (_reachedX - run.StartX) * ux + (_reachedY - run.StartY) * uy;
+        if (along > reached)
+            (_reachedX, _reachedY) = (_reachedX + (along - reached) * ux, _reachedY + (along - reached) * uy);
+        int vx = _x - _reachedX, vy = _y - _reachedY;
+        foreach (var turn in GestureStep.Across(run.Direction))
+        {
+            var (tx, ty) = Unit(turn);
+            int forward = vx * tx + vy * ty, back = Math.Abs(vx * ux + vy * uy);
+            if (step[turn] is { } next && forward >= Counts(thresholdMm) && back <= CrossRatio * forward)
+            {
+                Enter(new Run(turn, _reachedX, _reachedY), next);
+                return;
+            }
+        }
+    }
+
+    // How far along its run, from where the run started, step k is reached: the threshold, then one spacing each.
+    private double Reach(int k) => Counts(thresholdMm + (k - 1) * _spacingMm);
 
     private GestureDirection Fire(GestureDirection direction, long now)
     {
         _stroke = direction;
         Direction = direction;
+        if (_repeats(direction))
+            _lockedVertical ??= direction is GestureDirection.Up or GestureDirection.Down;
         (_fromX, _fromY) = (_firedX, _firedY) = (_x, _y);
         _movedOnAt = now;
         return direction;

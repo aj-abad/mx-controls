@@ -65,13 +65,15 @@ import {
 import type { ButtonAction } from "~/composables/useAgent";
 
 /**
- * Picks an action by what it does: a preset such as "Copy", or one of the custom choices, "shortcut", "hold"
- * and "none". `modelValue` is the ID of the choice shown.
+ * Picks an action by what it does: a preset such as "Copy", or one of the custom choices, "shortcut" (a macro),
+ * "hold" (a key) and "none". `modelValue` is the ID of the choice shown.
  */
-const { modelValue, label, allowHold = true } = defineProps<{
+const { modelValue, label, allowHold = true, defaultLabel } = defineProps<{
   modelValue: string;
   label: string;
   allowHold?: boolean;
+  /** Offers "default", what the button does without MX Controls, under this name. */
+  defaultLabel?: string;
 }>();
 const emit = defineEmits<{
   "update:modelValue": [id: string];
@@ -101,20 +103,24 @@ function hintFor(action: ButtonAction) {
   return action.keys.map((key) => SHORT_KEYS[key] ?? keyLabel(key)).join(" ");
 }
 
+// A macro sends its keys once, or over and over while repeating; a key stays down as long as the button.
 const CUSTOM: Choice[] = [
-  { id: "shortcut", label: "Keyboard shortcut…", keywords: "custom keys press record" },
-  { id: "hold", label: "Hold keys…", keywords: "custom keys modifier down while held" },
+  { id: "shortcut", label: "Macro…", keywords: "custom keys press record keyboard shortcut" },
+  { id: "hold", label: "Key…", keywords: "custom keys modifier hold down while held" },
   { id: "none", label: "Do nothing", keywords: "off disable none" },
 ];
 
 const choices = computed(() => {
-  const all: (Choice & { group: string })[] = PRESETS.map((preset) => ({
+  const all: (Choice & { group: string })[] = defaultLabel
+    ? [{ id: "default", group: "This button", label: defaultLabel, hint: "default", keywords: "reset own" }]
+    : [];
+  all.push(...PRESETS.map((preset) => ({
     id: preset.id,
     group: preset.group,
     label: preset.label,
     hint: hintFor(preset.action),
     keywords: preset.keywords,
-  }));
+  })));
   for (const choice of CUSTOM) if (allowHold || choice.id !== "hold") all.push({ ...choice, group: "Custom" });
   return all;
 });

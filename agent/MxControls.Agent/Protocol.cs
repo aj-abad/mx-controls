@@ -19,10 +19,16 @@ public static class Protocol
 /// <param name="Bindings">The active profile's bindings.</param>
 /// <param name="ThumbWheel">The active profile's thumb wheel settings.</param>
 /// <param name="Revision">Goes up with every change, so a client can tell an older state from a newer one.</param>
+/// <param name="GesturePresets">Every preset: the built-in ones, as edited if they have been, then the user's own.</param>
+/// <param name="BuiltInPresets">The built-in presets as they come, so a client can tell an edited one and reset it.</param>
+/// <param name="PresetUses">Which buttons follow which preset, in every profile.</param>
 public sealed record AgentState(
     bool Connected, DeviceState? Device, IReadOnlyList<ButtonBinding> Bindings, ThumbWheelSettings ThumbWheel,
     IReadOnlyList<ProfileSummary> Profiles, string ActiveProfile, bool StartAtLogin, bool OptionsPlusRunning, string? Error,
-    long Revision);
+    long Revision, int MultiClickMs, IReadOnlyList<GesturePreset> GesturePresets, IReadOnlyList<GesturePreset> BuiltInPresets,
+    IReadOnlyList<PresetUse> PresetUses);
+
+public sealed record PresetUse(string Preset, string Profile, string Button);
 
 public sealed record ProfileSummary(string Id, string Name, string? Icon);
 
@@ -48,8 +54,13 @@ public sealed record ButtonState(string Id, string Name, int Cid, bool DivertedE
 
 public sealed record ButtonEvent(string? Button, int Cid, bool Down);
 
-/// <param name="Direction">"click", "up", "down", "left" or "right".</param>
-public sealed record GestureEvent(string? Button, string Direction);
+/// <param name="Direction">The last of <paramref name="Path"/>, or null once a path is backed out of.</param>
+/// <param name="Path">"up", "down", "left" or "right", one per step; clicks come as <see cref="ClickEvent"/>.</param>
+/// <param name="Phase">"fire" when the path ran, "step" when it changed without running.</param>
+public sealed record GestureEvent(string? Button, string? Direction, IReadOnlyList<string> Path, string Phase);
+
+/// <param name="Count">1, 2 or 3 for a single, double or triple click.</param>
+public sealed record ClickEvent(string? Button, int Count);
 
 /// <param name="Code">The key's <c>KeyboardEvent.code</c>, or null for a key the agent can't send.</param>
 public sealed record KeyEvent(string? Code, bool Down);
@@ -62,9 +73,11 @@ public sealed record KeyCaptureEvent(bool Active);
 [JsonSerializable(typeof(AgentState))]
 [JsonSerializable(typeof(ButtonEvent))]
 [JsonSerializable(typeof(GestureEvent))]
+[JsonSerializable(typeof(ClickEvent))]
 [JsonSerializable(typeof(KeyEvent))]
 [JsonSerializable(typeof(KeyCaptureEvent))]
 [JsonSerializable(typeof(AgentSettings))]
 [JsonSerializable(typeof(ButtonBinding[]))]
+[JsonSerializable(typeof(GesturePreset))]
 [JsonSerializable(typeof(ThumbWheelSettings))]
 internal sealed partial class AgentJson : JsonSerializerContext;

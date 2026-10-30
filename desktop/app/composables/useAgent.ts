@@ -16,6 +16,14 @@ export interface AgentState {
   error: string | null;
   /** Goes up with every change the agent makes; a state with a lower one is out of date. */
   revision: number;
+  /** How long a click waits for another, on buttons with a double click set. One setting for every button. */
+  multiClickMs: number;
+  /** Every preset: the built-in ones, as edited if they have been, then the user's own. */
+  gesturePresets: GesturePreset[];
+  /** The built-in presets as they come, to tell an edited one and reset it. */
+  builtInPresets: GesturePreset[];
+  /** Which buttons follow which preset, in every profile. */
+  presetUses: { preset: string; profile: string; button: string }[];
 }
 
 export interface DeviceState {
@@ -87,19 +95,48 @@ export interface ButtonAction {
   mouse?: string | null;
 }
 
-export interface GestureActions {
-  click: ButtonAction;
-  up: ButtonAction;
-  down: ButtonAction;
-  left: ButtonAction;
-  right: ButtonAction;
+export type Direction = "up" | "down" | "left" | "right";
+
+/**
+ * A step of a gesture: its action, and the steps beyond it, the same way to go further or at right angles to
+ * turn. Not both, and never back the way it came.
+ */
+export interface GestureStep extends ButtonAction {
+  up?: GestureStep | null;
+  down?: GestureStep | null;
+  left?: GestureStep | null;
+  right?: GestureStep | null;
 }
 
+/** Saved moves buttons follow, so editing one changes every button that uses it. Clicks stay on each button. */
+export interface GesturePreset extends Record<Direction, GestureStep> {
+  id: string;
+  name: string;
+  /** Distance between steps in a run, 4 to 15 mm. */
+  spacingMm: number;
+  icon?: string | null;
+}
+
+/** A gesture carried whole, from before presets; the agent moves these into presets when it loads them. */
+export type GestureActions = Record<Direction, GestureStep> & {
+  click: ButtonAction;
+  doubleClick?: ButtonAction | null;
+  tripleClick?: ButtonAction | null;
+  spacingMm?: number;
+};
+
+/** A gesture follows `preset`, with `action` and the double and triple clicks as its clicks. */
 export interface ButtonBinding {
   button: string;
   mode: "action" | "gesture";
   action?: ButtonAction | null;
   gesture?: GestureActions | null;
+  /** What two quick clicks run. */
+  doubleClick?: ButtonAction | null;
+  /** What three quick clicks run; needs a double click. */
+  tripleClick?: ButtonAction | null;
+  /** For `gesture`: the preset it follows. */
+  preset?: string | null;
 }
 
 /** A diverted control going down or up; the agent only hears the controls it or another app diverted. */
@@ -111,7 +148,18 @@ export interface ButtonEvent {
 
 export interface GestureEvent {
   button: string | null;
-  direction: keyof GestureActions;
+  /** The last of `path`, or null once a path is backed out of. */
+  direction: Direction | null;
+  /** One direction per step. */
+  path: Direction[];
+  /** "fire" when it ran, "step" when the path changed without running. */
+  phase: "fire" | "step";
+}
+
+/** A click that ran: 1, 2 or 3 for a single, double or triple click. */
+export interface ClickEvent {
+  button: string | null;
+  count: number;
 }
 
 /** A key the agent captured while recording a shortcut; `code` is null for keys it can't send. */
@@ -130,8 +178,13 @@ interface KeyHandlers {
 const agentState = shallowRef<AgentState | null>(null);
 const pipeConnected = ref(false);
 const lastGesture = shallowRef<GestureEvent | null>(null);
+/** The last click a bound button ran, as the agent counted it. A new object each time. */
+const lastClick = shallowRef<ClickEvent | null>(null);
 /** The last diverted control pressed down. A new object each time, so pressing the same one again still notifies. */
 const lastPress = shallowRef<ButtonEvent | null>(null);
+/** What the last request that failed said, until it's dismissed or a later one goes through. */
+const failure = shallowRef<{ id: number; message: string } | null>(null);
+let failures = 0;
 let started = false;
 let keyHandlers: KeyHandlers | null = null;
 // Revisions start again when the agent does, so the floor drops each time the pipe connects.
@@ -160,8 +213,14 @@ const OPTIMISTIC = new Set([
   "switchProfile",
   "setProfileIcon",
   "setStartAtLogin",
+  "setMultiClickMs",
   "setHostName",
+  "setGesturePreset",
 ]);
+
+/** Each preset is its own setting, so changes to two presets in a row don't stand in for each other. */
+const settingKey = (method: string, params: Record<string, unknown>) =>
+  method === "setGesturePreset" ? `${method}:${(params.preset as { id: string }).id}` : method;
 const DEBOUNCE_MS = 150;
 
 interface Overlay {
@@ -172,13 +231,13 @@ interface Overlay {
 const overlays = shallowRef(new Map<string, Overlay>());
 let nextToken = 0;
 
-function setOverlay(overlay: Overlay | null, method: string, token?: number) {
-  const current = overlays.value.get(method);
+function setOverlay(overlay: Overlay | null, key: string, token?: number) {
+  const current = overlays.value.get(key);
   // A newer change to the same setting keeps showing until its own answer comes.
   if (!overlay && current?.token !== token) return;
   const next = new Map(overlays.value);
-  if (overlay) next.set(method, overlay);
-  else next.delete(method);
+  if (overlay) next.set(key, overlay);
+  else next.delete(key);
   overlays.value = next;
 }
 
@@ -205,14 +264,24 @@ async function call<T = AgentState>(method: string, params: Record<string, unkno
   return await invoke<T>("agent_call", { method, params });
 }
 
-async function send(method: string, params: Record<string, unknown>, failure: string) {
+/** Says something went wrong; the layout shows it above the page. */
+export function reportFailure(message: string) {
+  failure.value = { id: ++failures, message };
+}
+
+function dismissFailure() {
+  failure.value = null;
+}
+
+async function send(method: string, params: Record<string, unknown>, failed: string) {
   try {
     const result = await call<AgentState | null>(method, params);
     // The reply is the state the request left, so whatever follows sees it without waiting for the event.
     if (result && typeof result === "object" && "revision" in result) receive(result);
+    dismissFailure();
     return true;
   } catch (error) {
-    showToast(`${failure}: ${String(error)}`, "error");
+    reportFailure(`${failed}: ${String(error)}`);
     return false;
   }
 }
@@ -226,25 +295,26 @@ interface Pending {
 const pending = new Map<string, Pending>();
 
 /**
- * Sends a request, raising a toast that starts with `failure` if the agent or mouse refuses it. A setting
+ * Sends a request, reporting a failure that starts with `failure` if the agent or mouse refuses it. A setting
  * shows its new value at once and goes back to the agent's if it's refused. Resolves to whether it took.
  */
 function attempt(method: string, params: Record<string, unknown>, failure: string): Promise<boolean> {
   if (!OPTIMISTIC.has(method)) return send(method, params, failure);
+  const key = settingKey(method, params);
   const token = ++nextToken;
-  setOverlay({ token, method, params }, method);
+  setOverlay({ token, method, params }, key);
   return new Promise((resolve) => {
-    const batch = pending.get(method) ?? { params, failure, waiting: [] };
+    const batch = pending.get(key) ?? { params, failure, waiting: [] };
     clearTimeout(batch.timer);
     Object.assign(batch, { params, failure });
     batch.waiting.push(resolve);
     batch.timer = setTimeout(async () => {
-      pending.delete(method);
+      pending.delete(key);
       const done = await send(method, batch.params, batch.failure);
-      setOverlay(null, method, token);
+      setOverlay(null, key, token);
       for (const settle of batch.waiting) settle(done);
     }, DEBOUNCE_MS);
-    pending.set(method, batch);
+    pending.set(key, batch);
   });
 }
 
@@ -291,6 +361,7 @@ function start() {
     if (payload.event === "key") keyHandlers?.key(payload.data as AgentKeyEvent);
     if (payload.event === "keyCapture" && !(payload.data as { active: boolean }).active) keyHandlers?.ended();
     if (payload.event === "gesture") lastGesture.value = { ...(payload.data as GestureEvent) };
+    if (payload.event === "click") lastClick.value = { ...(payload.data as ClickEvent) };
     if (payload.event === "button" && (payload.data as ButtonEvent).down) lastPress.value = { ...(payload.data as ButtonEvent) };
   });
   void listen<boolean>("agent://connection", ({ payload }) => {
@@ -308,5 +379,5 @@ function start() {
 export function useAgent() {
   start();
   const device = computed(() => (state.value?.connected ? state.value.device : null));
-  return { state, device, pipeConnected, lastGesture, lastPress, call, attempt, captureKeys };
+  return { state, device, pipeConnected, lastGesture, lastClick, lastPress, failure, dismissFailure, call, attempt, captureKeys };
 }

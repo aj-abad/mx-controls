@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Button Editor Revamp</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400..700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --canvas: #1c1c1e; --panel: #262628; --field: #323234; --ink: #f5f5f7; --ink-2: #c7c7cc; --ink-3: #8e8e93;
+  --on-ink: #141414; --line: rgb(255 255 255 / .11); --fill: rgb(255 255 255 / .08); --fill-strong: rgb(255 255 255 / .17);
+  --accent: #2cc4fd; --warn: #f2b45c; --warn-fill: rgb(242 160 60 / .15); --good: #34c76f;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --canvas: #ffffff; --panel: #f5f5f7; --field: #ffffff; --ink: #141414; --ink-2: #4a4a4a; --ink-3: #7d7d7d;
+    --on-ink: #fff; --line: rgb(20 20 30 / .11); --fill: rgb(20 20 30 / .085); --fill-strong: rgb(20 20 30 / .17);
+    --accent: #00b8fc; --warn: #a15c07; --warn-fill: #fff3e0; --good: #138a43;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--canvas); color: var(--ink); font: 14px/1.45 "Schibsted Grotesk", "Segoe UI", system-ui, sans-serif; }
+.page { max-width: 1120px; margin: 0 auto; padding: 40px 16px 80px; }
+h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: -.01em; }
+h2 { font-size: 20px; margin: 0 0 4px; }
+h3 { font-size: 14px; margin: 18px 0 6px; }
+p { margin: 0 0 10px; color: var(--ink-2); }
+.lede { max-width: 720px; }
+nav.toc { position: sticky; top: 0; z-index: 5; display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 0; margin: 18px 0 24px; background: var(--canvas); border-bottom: 1px solid var(--line); }
+nav.toc a { color: var(--ink-2); text-decoration: none; font-size: 13px; padding: 5px 11px; border-radius: 999px; background: var(--fill); }
+nav.toc a:hover { color: var(--ink); background: var(--fill-strong); }
+section.block { margin: 0 0 56px; scroll-margin-top: 64px; }
+.rec { border-radius: 14px; background: var(--panel); padding: 16px 18px; border-left: 3px solid var(--accent); margin: 18px 0 0; max-width: 820px; }
+.rec p { margin: 0; color: var(--ink); }
+ol.problems { padding-left: 20px; margin: 8px 0 0; max-width: 820px; }
+ol.problems li { margin: 0 0 8px; color: var(--ink-2); }
+ol.problems b { color: var(--ink); font-weight: 600; }
+.states { display: flex; gap: 24px; flex-wrap: wrap; margin: 16px 0 8px; }
+.state { display: flex; flex-direction: column; gap: 8px; }
+.state > .cap { font-size: 12px; color: var(--ink-3); }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px 28px; max-width: 980px; }
+.cols ul { margin: 0; padding-left: 18px; color: var(--ink-2); }
+.cols li { margin: 0 0 5px; }
+.verdict { font-size: 12px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: var(--ink-3); }
+.tag-rec { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--accent); color: var(--on-ink); vertical-align: 3px; margin-left: 6px; }
+
+/* The app's inspector: 470 x 540 stage units. */
+.panel { width: 470px; max-width: calc(100vw - 32px); height: 540px; border-radius: 16px; background: var(--panel); display: flex; flex-direction: column; overflow: hidden; }
+.ph { padding: 16px 24px 14px; }
+.back { font-size: 13px; color: var(--ink-3); margin-bottom: 8px; }
+.ph .t { font-size: 18px; font-weight: 600; }
+.ph .d { font-size: 13px; color: var(--ink-3); margin-top: 2px; }
+.pb { flex: 1; min-height: 0; overflow-y: auto; padding: 0 24px 20px; display: flex; flex-direction: column; gap: 18px; }
+.pf { height: 56px; flex-shrink: 0; border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; padding: 0 12px 0 24px; font-size: 13px; color: var(--ink-3); }
+.pf .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: 8px; vertical-align: 1px; }
+.pf .reset { color: var(--ink); font-weight: 500; padding: 6px 10px; }
+
+.grp-h { display: flex; align-items: center; justify-content: space-between; font-size: 12px; font-weight: 500; color: var(--ink-3); margin-bottom: 6px; }
+.grp-h .r { display: flex; gap: 6px; align-items: center; }
+.mini { height: 26px; padding: 0 10px; border-radius: 999px; background: var(--field); box-shadow: inset 0 0 0 1px var(--line); font-size: 12px; color: var(--ink-2); display: inline-flex; align-items: center; gap: 4px; }
+.picker { height: 38px; border-radius: 9px; background: var(--field); box-shadow: inset 0 0 0 1px var(--line); display: flex; align-items: center; gap: 8px; padding: 0 10px 0 12px; font-size: 13.5px; min-width: 0; }
+.picker .l { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.picker .h { font-size: 12px; color: var(--ink-3); flex-shrink: 0; }
+.picker .c { color: var(--ink-3); font-size: 11px; flex-shrink: 0; }
+.picker.none .l { color: var(--ink-3); }
+.picker.focus { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.kbd { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 2px 7px; border-radius: 6px; background: var(--fill-strong); }
+.ghost { height: 34px; border-radius: 9px; border: 1px dashed var(--fill-strong); display: flex; align-items: center; gap: 6px; padding: 0 12px; color: var(--ink-3); font-size: 13px; }
+.note { font-size: 12.5px; color: var(--ink-3); }
+.note u { text-decoration: none; border-bottom: 1px dotted var(--ink-3); color: var(--ink-2); }
+.warnline { font-size: 12.5px; color: var(--warn); background: var(--warn-fill); border-radius: 8px; padding: 6px 10px; }
+
+/* A: one list of triggers */
+.trow { display: grid; grid-template-columns: 128px 1fr; gap: 10px; align-items: center; min-height: 38px; }
+.trow + .trow { margin-top: 6px; }
+.trig { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+.trig .n { display: flex; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 500; white-space: nowrap; }
+.trig .w { font-size: 11px; color: var(--ink-3); margin-left: 1px; }
+.dots { display: inline-flex; gap: 2px; width: 22px; justify-content: center; }
+.dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--ink-2); }
+.arr { display: inline-flex; gap: 2px; }
+.arr b { width: 20px; height: 20px; border-radius: 6px; background: var(--fill-strong); font-size: 12px; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; }
+.arr b.dim { background: var(--fill); color: var(--ink-3); }
+.sub { grid-column: 2; margin-top: -2px; }
+.indent { padding-left: 12px; }
+.recorder { border-radius: 10px; background: var(--fill); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.recorder .top { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.caret { width: 2px; height: 18px; background: var(--accent); animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.compass { width: 54px; height: 54px; position: relative; flex-shrink: 0; }
+.collapsed-moves { border-radius: 12px; border: 1px dashed var(--fill-strong); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.collapsed-moves .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+
+/* B: gesture map */
+.map { position: relative; height: 300px; border-radius: 12px; background: var(--fill); background-image: radial-gradient(var(--fill-strong) 1px, transparent 1.2px); background-size: 14px 14px; overflow: hidden; flex-shrink: 0; }
+.map svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.node { position: absolute; transform: translate(-50%, -50%); min-width: 74px; max-width: 96px; padding: 5px 8px; border-radius: 10px; background: var(--field); box-shadow: inset 0 0 0 1px var(--line); text-align: center; font-size: 11.5px; line-height: 1.25; }
+.node .g { font-size: 11px; color: var(--ink-3); display: block; }
+.node.sel { background: var(--ink); color: var(--on-ink); box-shadow: none; }
+.node.sel .g { color: color-mix(in srgb, var(--on-ink) 65%, transparent); }
+.node.empty { color: var(--ink-3); }
+.node.plus { min-width: 0; width: 26px; height: 26px; padding: 0; border-radius: 50%; background: transparent; box-shadow: inset 0 0 0 1px var(--fill-strong); color: var(--ink-3); display: flex; align-items: center; justify-content: center; font-size: 15px; }
+.node.center { min-width: 104px; max-width: 120px; padding: 6px 8px; text-align: left; }
+.node.center .cl { display: flex; justify-content: space-between; gap: 6px; }
+.node.center .cl span:first-child { color: var(--ink-3); }
+.node.center .cl.unset span { color: var(--ink-3); }
+.node.release { box-shadow: none; border: 1px dashed var(--ink-3); }
+.node.release.sel { border-color: var(--ink); }
+.pop { position: absolute; width: 236px; border-radius: 12px; background: var(--field); box-shadow: 0 10px 30px rgb(0 0 0 / .35), inset 0 0 0 1px var(--line); padding: 12px; display: flex; flex-direction: column; gap: 8px; z-index: 2; }
+.pop .pt { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.pop .picker { background: var(--panel); }
+.toolbar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.legend { display: flex; gap: 12px; font-size: 11.5px; color: var(--ink-3); }
+.legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.legend .i::before { background: var(--field); box-shadow: inset 0 0 0 1px var(--line); }
+.legend .r::before { border: 1px dashed var(--ink-3); }
+
+/* C: drill-in pad */
+.crumbs { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-3); }
+.crumbs b { color: var(--ink); font-weight: 600; }
+.crumbs .sep { opacity: .6; }
+.pad { display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: 60px 84px 60px; gap: 6px; }
+.cell { border-radius: 12px; background: var(--field); box-shadow: inset 0 0 0 1px var(--line); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; font-size: 12px; padding: 4px 6px; text-align: center; position: relative; min-width: 0; }
+.cell .gl { font-size: 13px; color: var(--ink-3); }
+.cell.sel { background: var(--ink); color: var(--on-ink); box-shadow: none; }
+.cell.sel .gl { color: color-mix(in srgb, var(--on-ink) 65%, transparent); }
+.cell.off { background: transparent; box-shadow: inset 0 0 0 1px var(--line); color: var(--ink-3); opacity: .55; }
+.cell .badge { position: absolute; right: 6px; top: 6px; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 999px; background: var(--accent); color: var(--on-ink); }
+.cell.center { align-items: stretch; gap: 3px; padding: 8px 10px; }
+.cell.center .cl { display: flex; justify-content: space-between; font-size: 11.5px; gap: 6px; }
+.cell.center .cl span:first-child { opacity: .6; }
+.u { grid-column: 2; grid-row: 1; } .l { grid-column: 1; grid-row: 2; } .c { grid-column: 2; grid-row: 2; } .r { grid-column: 3; grid-row: 2; } .dn { grid-column: 2; grid-row: 3; }
+.ed-h { display: flex; align-items: baseline; justify-content: space-between; font-size: 13.5px; font-weight: 600; }
+.ed-h .note { font-weight: 400; }
+.btnrow { display: flex; gap: 6px; }
+.sbtn { height: 30px; padding: 0 12px; border-radius: 8px; background: var(--fill); font-size: 12.5px; display: inline-flex; align-items: center; gap: 5px; color: var(--ink); }
+.sbtn.dis { color: var(--ink-3); opacity: .6; }
+
+table.cmp { border-collapse: collapse; width: 100%; max-width: 980px; font-size: 13px; margin-top: 10px; }
+table.cmp th, table.cmp td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.cmp th { color: var(--ink-3); font-weight: 500; font-size: 12px; }
+table.cmp td:first-child { color: var(--ink-2); width: 190px; }
+.wrap-x { overflow-x: auto; }
+@media (max-width: 560px) { .trow { grid-template-columns: 104px 1fr; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Button editor revamp</h1>
+  <p class="lede">Three directions for the button inspector now that buttons have double and triple clicks on top of the Action and Gesture modes, and with gesture paths and saved presets coming next. Every mockup is drawn at the inspector's real size, 470 × 540.</p>
+  <div class="rec"><p><b>Recommendation: A, “One list of triggers”.</b> It replaces all three nested switches (mode, then gesture cell, then click count) with a single list where every trigger is a row you can see. Paths become more rows, presets fill the movement rows, and a small compass keeps the spatial cue the pad gives today.</p></div>
+
+  <nav class="toc">
+    <a href="#today">Problems today</a><a href="#a">A · Trigger list</a><a href="#b">B · Gesture map</a><a href="#c">C · Drill-in pad</a><a href="#toggle">“Action | Path” toggle</a><a href="#compare">Comparison</a><a href="#shared">Shared fixes</a>
+  </nav>
+
+  <section class="block" id="today">
+    <h2>What's wrong today</h2>
+    <ol class="problems">
+      <li><b>Three switches deep.</b> In Gesture mode you pick the mode, then a pad cell, then Click, Double click or Triple click. The mode switch and the count switch look the same, so they read as two rows of tabs at the same level, and only the bottom one changes with the pad.</li>
+      <li><b>Double and triple clicks are hidden.</b> The pad's centre cell shows the single click and a small “2×”. You only see what the double or triple does by switching to its tab. In Action mode, the actions sit behind the same switch.</li>
+      <li><b>Triple is undiscoverable.</b> The “Triple click” tab only appears once a double has an action. The tabs also look like views of one thing, not slots you can fill.</li>
+      <li><b>Side effects happen on another tab.</b> Setting a double click quietly turns the single click's Left Shift key into a macro that taps once, and turns its repeat off. That happens on the Click tab while you're looking at the Double click tab.</li>
+      <li><b>A global setting sits inside one button.</b> The 300 ms wait slider shows up in every button's editor, in both modes, with a paragraph explaining that it's shared. It's the biggest element in the click editor, yet it's the one you change least.</li>
+      <li><b>Nothing fits.</b> The mode switch, presets, pad, count switch, picker and wait box make the Gesture panel taller than 540. Editing the click scrolls the pad, and the switch above it, out of view.</li>
+      <li><b>Action and Gesture overlap.</b> Both have a click with double and triple. The only real difference is whether moving does anything. Switching modes also keeps two separate sets of double and triple clicks, which nobody would expect.</li>
+      <li><b>The summaries say little.</b> The list shows “Gestures” for any gesture, and “Left Shift key · 2×” for an action, without saying what the 2× does.</li>
+      <li><b>Paths have nowhere to go.</b> The cross has four fixed arms. Adding Extend, Branch, an “Action | Path” toggle and spacing to the cell editor would add a fourth layer of switching.</li>
+    </ol>
+  </section>
+
+  <!-- ───────────────────────── A ───────────────────────── -->
+  <section class="block" id="a">
+    <h2>A · One list of triggers <span class="tag-rec">Recommended</span></h2>
+    <p class="lede">A button is a list of what you can do with it and what each does: click, double click, triple click, then each move. There's no mode switch. Default means nothing is set, and adding a move is what makes a button a gesture button. Every trigger is a row with its own action picker, so nothing is behind a tab.</p>
+
+    <div class="states">
+      <div class="state">
+        <span class="cap">Middle button: a key, with a double click just added</span>
+        <div class="panel">
+          <div class="ph"><div class="back">← All controls</div><div class="t">Middle button</div><div class="d">Pressing the scroll wheel straight down.</div></div>
+          <div class="pb">
+            <div>
+              <div class="grp-h"><span>Press</span></div>
+              <div class="trow">
+                <div class="trig"><span class="n"><span class="dots"><i></i></span>Click</span></div>
+                <div class="picker"><span class="l">Macro</span><span class="kbd">Left Shift</span><span class="c">▾</span></div>
+              </div>
+              <div class="trow"><div></div><div class="warnline">The key became a macro that taps Left Shift once. A key is held down with the button, so it can't wait to see if a second click follows.</div></div>
+              <div class="trow">
+                <div class="trig"><span class="n"><span class="dots"><i></i><i></i></span>Double click</span></div>
+                <div class="picker focus"><span class="l">Task View</span><span class="c">▾</span></div>
+              </div>
+              <div class="trow"><div></div><div class="note">A single click now waits <u>300 ms</u> for a second one.</div></div>
+              <div class="trow">
+                <div class="trig"><span class="n" style="color:var(--ink-3)"><span class="dots"><i></i><i></i><i></i></span>Triple click</span></div>
+                <div class="ghost">+ Add an action</div>
+              </div>
+            </div>
+            <div>
+              <div class="grp-h"><span>Move while holding</span></div>
+              <div class="collapsed-moves">
+                <div class="note" style="color:var(--ink-2)">Hold the button and move the mouse up, down, left or right to run an action. Once a move is set, the click runs when you let go.</div>
+                <div class="chips"><span class="mini" style="color:var(--ink)">+ Add moves</span><span class="note" style="margin:0 2px">or start from</span><span class="mini">Desktops</span><span class="mini">Browser</span><span class="mini">Media</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="pf"><span><span class="dot"></span>Customized</span><span class="reset">Reset to default</span></div>
+        </div>
+      </div>
+
+      <div class="state">
+        <span class="cap">Gesture button with a path, while recording another one</span>
+        <div class="panel">
+          <div class="ph"><div class="back">← All controls</div><div class="t">Gesture button</div><div class="d">The button in the thumb rest.</div></div>
+          <div class="pb">
+            <div>
+              <div class="grp-h"><span>Press without moving</span></div>
+              <div class="trow">
+                <div class="trig"><span class="n"><span class="dots"><i></i></span>Click</span></div>
+                <div class="picker"><span class="l">Copy</span><span class="h">Ctrl C</span><span class="c">▾</span></div>
+              </div>
+              <div class="trow">
+                <div class="trig"><span class="n" style="color:var(--ink-3)"><span class="dots"><i></i><i></i></span>Double click</span></div>
+                <div class="ghost">+ Add an action</div>
+              </div>
+            </div>
+            <div>
+              <div class="grp-h">
+                <span>Move while holding</span>
+                <span class="r"><span class="mini">Presets ▾</span></span>
+              </div>
+              <div style="display:flex; gap:12px; align-items:flex-start;">
+                <div style="flex:1; min-width:0;">
+                  <div class="trow"><div class="trig"><span class="n"><span class="arr"><b>↑</b></span>Up</span></div><div class="picker"><span class="l">Paste</span><span class="h">Ctrl V</span><span class="c">▾</span></div></div>
+                  <div class="trow"><div class="trig"><span class="n"><span class="arr"><b>↓</b></span>Down</span></div><div class="picker"><span class="l">Delete</span><span class="c">▾</span></div></div>
+                  <div class="trow"><div class="trig"><span class="n"><span class="arr"><b>←</b></span>Left</span></div><div class="picker"><span class="l">Undo</span><span class="h">Ctrl Z</span><span class="c">▾</span></div></div>
+                  <div class="trow"><div class="trig"><span class="n"><span class="arr"><b>→</b></span>Right</span><span class="w">on release · leads on</span></div><div class="picker none"><span class="l">Nothing</span><span class="c">▾</span></div></div>
+                  <div class="trow"><div class="trig indent"><span class="n"><span class="arr"><b class="dim">→</b><b>→</b></span></span><span class="w">on release · turns</span></div><div class="picker"><span class="l">Desktop to the right</span><span class="c">▾</span></div></div>
+                  <div class="trow"><div class="trig indent" style="margin-left:14px"><span class="n"><span class="arr"><b class="dim">→</b><b class="dim">→</b><b>↑</b></span></span><span class="w">on release</span></div><div class="picker"><span class="l">Snap window up</span><span class="c">▾</span></div></div>
+                  <div class="trow"><div class="trig indent" style="margin-left:14px"><span class="n"><span class="arr"><b class="dim">→</b><b class="dim">→</b><b>↓</b></span></span><span class="w">on release</span></div><div class="picker"><span class="l">Snap window down</span><span class="c">▾</span></div></div>
+                </div>
+              </div>
+              <div class="recorder" style="margin-top:10px">
+                <div class="top"><span class="arr"><b>↑</b><b>↑</b></span><span class="caret"></span><span class="note" style="margin-left:auto">Esc cancels · Enter adds</span></div>
+                <div class="note">Draw the path with the arrow keys, or do it with the mouse.</div>
+              </div>
+              <div class="toolbar" style="margin-top:8px"><span class="mini">+ Add a path</span><span class="mini">Spacing 6 mm</span></div>
+            </div>
+          </div>
+          <div class="pf"><span><span class="dot"></span>Customized</span><span class="reset">Reset to default</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="cols">
+      <div>
+        <h3>Why</h3>
+        <ul>
+          <li>No switches at all, so every action the button has is on screen at once.</li>
+          <li>Rows name triggers the way people say them: “double click”, “→ → ↑”.</li>
+          <li>A consequence shows on the row it changes. The hold note above sits on Click, not on the tab you're on.</li>
+          <li>Dropping the mode switch also drops the two hidden sets of double and triple clicks.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Trade-offs</h3>
+        <ul>
+          <li>Loses the cross, which mirrors the hand. Arrow chips, plus an optional compass beside the moves that lights up the hovered or fired row, win most of it back.</li>
+          <li>A large gesture becomes a long list. The limits (3 steps per run, 2 turns) keep it bounded, and the panel scrolls.</li>
+          <li>“Action” disappears as a word. A button is just Default, or what its rows say.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Paths and presets</h3>
+        <ul>
+          <li>A path is a row whose trigger is its arrows, indented under the step it leaves from. “On release” or “instant” is printed on the row, as the doc asks.</li>
+          <li>To add one, record it with the arrow keys or by doing it on the mouse. Extend and branch rules are checked as you go, so there's no Extend or Branch button and no “Action | Path” toggle.</li>
+          <li>Presets fill the movement rows. “Save as preset” sits in the same menu.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────────────── B ───────────────────────── -->
+  <section class="block" id="b">
+    <h2>B · Gesture map</h2>
+    <p class="lede">The pad grows into a map of every step, centred on the click. Selecting a node opens a small popover anchored to it, so the map never scrolls away while you edit. The click node lists 1×, 2× and 3× itself. A button with no moves is just the centre node with four faint “+” around it.</p>
+
+    <div class="states">
+      <div class="state">
+        <span class="cap">Editing the click: counts live in the centre node</span>
+        <div class="panel">
+          <div class="ph"><div class="back">← All controls</div><div class="t">Gesture button</div><div class="d">The button in the thumb rest.</div></div>
+          <div class="pb">
+            <div class="map">
+              <svg viewBox="0 0 422 300" preserveAspectRatio="none"><g stroke="var(--fill-strong)" stroke-width="1.5" fill="none"><path d="M112 150 V58"/><path d="M112 150 V242"/><path d="M112 150 H40"/><path d="M112 150 H200"/></g></svg>
+              <div class="node" style="left:112px; top:46px"><span class="g">↑</span>Paste</div>
+              <div class="node" style="left:112px; top:254px"><span class="g">↓</span>Delete</div>
+              <div class="node" style="left:38px; top:150px; min-width:60px"><span class="g">←</span>Undo</div>
+              <div class="node" style="left:206px; top:150px; min-width:62px"><span class="g">→</span>Redo</div>
+              <div class="node plus" style="left:112px; top:12px">+</div>
+              <div class="node center sel" style="left:112px; top:150px; min-width:96px"><div class="cl"><span>1×</span><span>Copy</span></div><div class="cl"><span>2×</span><span>Task View</span></div><div class="cl unset"><span>3×</span><span>+</span></div></div>
+              <div class="pop" style="left:248px; top:28px; width:166px">
+                <div class="pt">Click without moving</div>
+                <div style="display:grid; grid-template-columns: 20px 1fr; gap:6px; align-items:center">
+                  <span class="note">1×</span><div class="picker"><span class="l">Copy</span><span class="c">▾</span></div>
+                  <span class="note">2×</span><div class="picker"><span class="l">Task View</span><span class="c">▾</span></div>
+                  <span class="note">3×</span><div class="ghost" style="height:32px">+ Add</div>
+                </div>
+                <div class="note">A single click waits <u>300 ms</u>.</div>
+              </div>
+            </div>
+            <div class="toolbar"><span class="mini">Presets ▾</span><span class="mini">Spacing 6 mm</span><span class="legend" style="margin-left:auto"><span class="i">instant</span><span class="r">on release</span></span></div>
+          </div>
+          <div class="pf"><span><span class="dot"></span>Customized</span><span class="reset">Reset to default</span></div>
+        </div>
+      </div>
+
+      <div class="state">
+        <span class="cap">A path: right, right, then a turn up or down</span>
+        <div class="panel">
+          <div class="ph"><div class="back">← All controls</div><div class="t">Gesture button</div><div class="d">The button in the thumb rest.</div></div>
+          <div class="pb">
+            <div class="map">
+              <svg viewBox="0 0 422 300" preserveAspectRatio="none"><g stroke="var(--fill-strong)" stroke-width="1.5" fill="none"><path d="M112 150 V58"/><path d="M112 150 V242"/><path d="M112 150 H40"/><path d="M112 150 H368"/><path d="M368 150 V64"/><path d="M368 150 V236"/></g></svg>
+              <div class="node" style="left:112px; top:46px"><span class="g">↑</span>Paste</div>
+              <div class="node" style="left:112px; top:254px"><span class="g">↓</span>Delete</div>
+              <div class="node" style="left:38px; top:150px; min-width:60px"><span class="g">←</span>Undo</div>
+              <div class="node center" style="left:112px; top:150px; min-width:76px"><div class="cl"><span>1×</span><span>Copy</span></div></div>
+              <div class="node release empty" style="left:240px; top:150px"><span class="g">→</span>Nothing</div>
+              <div class="node release" style="left:368px; top:150px"><span class="g">→ →</span>Desktop right</div>
+              <div class="node release sel" style="left:368px; top:52px"><span class="g">→ → ↑</span>Snap up</div>
+              <div class="node release" style="left:368px; top:248px"><span class="g">→ → ↓</span>Snap down</div>
+              <div class="pop" style="left:150px; top:176px; width:162px; padding:10px; gap:7px">
+                <div class="pt"><span class="arr"><b>→</b><b>→</b><b>↑</b></span><span class="note" style="font-weight:400">on release</span></div>
+                <div class="picker"><span class="l">Snap window up</span><span class="c">▾</span></div>
+                <div class="btnrow"><span class="sbtn">Extend</span><span class="sbtn">Branch</span><span class="sbtn" style="padding:0 9px">⋯</span></div>
+              </div>
+            </div>
+            <div class="toolbar"><span class="mini">Presets ▾</span><span class="mini">Spacing 6 mm</span><span class="legend" style="margin-left:auto"><span class="i">instant</span><span class="r">on release</span></span></div>
+          </div>
+          <div class="pf"><span><span class="dot"></span>Customized</span><span class="reset">Reset to default</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="cols">
+      <div>
+        <h3>Why</h3>
+        <ul>
+          <li>The editor looks like the overlay you'll see while gesturing, so editing teaches the gesture.</li>
+          <li>One click per node, and popovers keep the whole map in view.</li>
+          <li>Live practice is natural: the node at the end of the fired path lights up.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Trade-offs</h3>
+        <ul>
+          <li>Space is the problem. A run of 3 that turns twice reaches 9 steps from the centre, which won't fit 422 px. The map would need to pan or zoom.</li>
+          <li>Labels have to be cut to about 12 characters per node.</li>
+          <li>Hardest to make keyboard- and screen-reader-friendly, and the most new code: layout, lines, popovers.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Paths and presets</h3>
+        <ul>
+          <li>Paths are drawn as they are. Extend and Branch sit in the node's popover, or come from “+” ghosts at the ends and sides of an arm.</li>
+          <li>Instant and on-release steps look different: solid for instant, dashed for on release.</li>
+          <li>Presets apply to the whole map. A preview thumbnail of each preset's map would sit well in its menu.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────────────── C ───────────────────────── -->
+  <section class="block" id="c">
+    <h2>C · Drill-in pad</h2>
+    <p class="lede">The smallest change from today, and closest to the plan in <code>docs/gestures.md</code>. The cross stays, and every step of a path is the same cross: its centre is that step, and its arms are the steps beyond it. A breadcrumb leads back. The centre cell lists 1×, 2× and 3× itself, and selecting it shows three rows instead of a switch.</p>
+
+    <div class="states">
+      <div class="state">
+        <span class="cap">Top level: the click selected</span>
+        <div class="panel">
+          <div class="ph"><div class="back">← All controls</div><div class="t">Gesture button</div><div class="d">The button in the thumb rest.</div></div>
+          <div class="pb">
+            <div class="crumbs"><b>Gesture</b><span style="margin-left:auto" class="mini">Presets ▾</span></div>
+            <div class="pad">
+              <div class="cell u"><span class="gl">↑</span>Paste</div>
+              <div class="cell l"><span class="gl">←</span>Undo</div>
+              <div class="cell c center sel"><div class="cl"><span>1×</span><span>Copy</span></div><div class="cl"><span>2×</span><span>Task View</span></div><div class="cl"><span>3×</span><span>—</span></div></div>
+              <div class="cell r"><span class="badge">3 ›</span><span class="gl">→</span><span style="color:var(--ink-3)">Nothing</span></div>
+              <div class="cell dn"><span class="gl">↓</span>Delete</div>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:6px">
+              <div class="ed-h">Click without moving</div>
+              <div style="display:grid; grid-template-columns: 28px 1fr; gap:6px; align-items:center">
+                <span class="note">1×</span><div class="picker"><span class="l">Copy</span><span class="h">Ctrl C</span><span class="c">▾</span></div>
+                <span class="note">2×</span><div class="picker"><span class="l">Task View</span><span class="c">▾</span></div>
+                <span class="note">3×</span><div class="ghost">+ Add an action</div>
+              </div>
+              <div class="note">A single click waits <u>300 ms</u> for a second one.</div>
+            </div>
+          </div>
+          <div class="pf"><span><span class="dot"></span>Customized</span><span class="reset">Reset to default</span></div>
+        </div>
+      </div>
+
+      <div class="state">
+        <span class="cap">Two steps in: Gesture › → › →, with ↑ selected</span>
+        <div class="panel">
+          <div class="ph"><div class="back">← All controls</div><div class="t">Gesture button</div><div class="d">The button in the thumb rest.</div></div>
+          <div class="pb">
+            <div class="crumbs"><span>Gesture</span><span class="sep">›</span><span>→</span><span class="sep">›</span><b>→</b></div>
+            <div class="pad">
+              <div class="cell u sel"><span class="gl">↑</span>Snap up</div>
+              <div class="cell l off"><span class="gl">←</span>Back</div>
+              <div class="cell c" style="gap:2px"><span class="gl">this step</span>Desktop right<span class="note" style="font-size:10.5px">on release</span></div>
+              <div class="cell r off"><span class="gl">→</span>Can't extend</div>
+              <div class="cell dn"><span class="gl">↓</span>Snap down</div>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:8px">
+              <div class="ed-h">Then up <span class="note">Runs when you let go here</span></div>
+              <div class="picker"><span class="l">Snap window up</span><span class="c">▾</span></div>
+              <div class="btnrow"><span class="sbtn dis">Go further ›</span><span class="note" style="align-self:center">This path already turns twice.</span></div>
+            </div>
+          </div>
+          <div class="pf"><span><span class="dot"></span>Customized</span><span class="reset">Reset to default</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="cols">
+      <div>
+        <h3>Why</h3>
+        <ul>
+          <li>Keeps the pad people already know, and the code that drives it.</li>
+          <li>One rule to learn: every step is a cross, at any depth, and the cross stays the same size however deep a path goes.</li>
+          <li>Matches the overlay, which shows the steps reachable from where you are.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Trade-offs</h3>
+        <ul>
+          <li>Depth is hidden. You only know a path exists from the “3 ›” badge, and you can't see the whole gesture at once.</li>
+          <li>Navigating is modal: drilling in and back. Undo has to bring the view back to the step it changed.</li>
+          <li>It still has two levels, cell then editor. They're consistent now, but they're still levels.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Paths and presets</h3>
+        <ul>
+          <li>No “Action | Path” toggle. Any arm with steps beyond it shows a badge, and “Go further ›” on a step opens its cross.</li>
+          <li>Extend and branch rules show as disabled arms that say why: “Can't extend”, “Back”.</li>
+          <li>Presets stay as chips or a menu at the top level only.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="toggle">
+    <h2>On the per-direction “Action | Path” toggle</h2>
+    <p class="lede">I'd drop it in every direction. It suggests a step is either an action or a path, but in the model a step is both: it has an action, possibly “none”, <i>and</i> optional steps beyond it. A toggle would hide the step's own action while “Path” is on, and switching back would raise the question of what happens to the steps beyond. It would also add a fourth level of switching to the one place that already has three. What the toggle was meant to show, that a direction leads further, is better said by the row's “leads on” note (A), a node's arms (B) or a badge (C). The timing change, from instant to on release, should be stated on that step.</p>
+  </section>
+
+  <section class="block" id="compare">
+    <h2>Comparison</h2>
+    <div class="wrap-x">
+    <table class="cmp">
+      <tr><th></th><th>A · Trigger list</th><th>B · Gesture map</th><th>C · Drill-in pad</th></tr>
+      <tr><td>Levels of switching</td><td>None</td><td>Node → popover</td><td>Cell → editor, plus depth</td></tr>
+      <tr><td>Double and triple visible</td><td>Always, as rows</td><td>In the centre node</td><td>In the centre cell</td></tr>
+      <tr><td>Spatial feel</td><td>Arrow chips, optional compass</td><td>Strongest</td><td>Strong</td></tr>
+      <tr><td>Fits 470 × 540 with paths</td><td>Scrolls as a list</td><td>Needs pan or zoom</td><td>Same size at any depth; the editor below it scrolls</td></tr>
+      <tr><td>Whole gesture at a glance</td><td>Yes</td><td>Yes, until it's large</td><td>No, one level at a time</td></tr>
+      <tr><td>Keyboard and screen reader</td><td>Easiest: rows and pickers</td><td>Hardest</td><td>As today</td></tr>
+      <tr><td>Build cost</td><td>Medium: a new editor that reuses ActionEditor</td><td>High: layout, lines, popovers, pan</td><td>Low: grows GesturePad</td></tr>
+      <tr><td>Mode switch</td><td>Gone; moves make a gesture</td><td>Gone; nodes make a gesture</td><td>Could stay, or go the same way</td></tr>
+    </table>
+    </div>
+  </section>
+
+  <section class="block" id="shared">
+    <h2>Fixes that apply to whichever direction is picked</h2>
+    <ol class="problems">
+      <li><b>One model, no mode switch.</b> Default is nothing set. A button with no moves acts on press, so a key can stay down and an action can repeat. Adding a move makes the click run on release. The binding's <code>mode</code> follows from what's set, and only one set of double and triple clicks exists.</li>
+      <li><b>The wait becomes one line.</b> “A single click now waits <u>300 ms</u> for a second one”, where the underlined value opens a popover with the slider and “Applies to every button”. The full slider could also live in a global settings spot later.</li>
+      <li><b>Consequences show where they land.</b> A key that a double click or a path turns into a macro, or a repeat they turn off, gets a warning on its own row. Ctrl+Z undoes it as usual.</li>
+      <li><b>Better summaries in the list.</b> Gesture: “Copy · 4 moves”, or “Copy · 2× · 4 moves · 1 path”. Action: “Left Shift key · 2× Task View” when it fits, otherwise “Left Shift key · 2× · 3×”.</li>
+      <li><b>Presets don't wipe clicks silently.</b> Applying one changes only the moves and leaves double and triple clicks alone, or says it replaced them.</li>
+    </ol>
+  </section>
+</div>
+</body>
+</html>

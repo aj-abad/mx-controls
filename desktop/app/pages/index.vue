@@ -14,7 +14,7 @@
          photo steps back to make room; going back reverses it. Both overlap while they cross, so neither waits. -->
     <AnimatePresence :initial="false">
       <motion.div
-        v-if="!selected"
+        v-if="!selected && !presetsPage"
         key="list"
         class="absolute top-0 rounded-2xl bg-panel"
         :style="{ left: `${LIST.x}px`, width: `${LIST.width}px`, height: `${layout.height}px` }"
@@ -60,8 +60,7 @@
                 <div
                   v-if="item.control.id === 'sensor'"
                   id="sensor-row"
-                  class="flex size-full items-center rounded-xl pr-2.5 pl-3"
-                  :class="hoveredId === item.control.id && 'bg-fill'"
+                  class="flex size-full items-center pr-2.5 pl-3"
                   @pointerenter="hoveredId = item.control.id"
                   @pointerleave="hoveredId = null">
                   <SensorSettings class="w-full" :device="device" />
@@ -94,8 +93,25 @@
         </template>
       </motion.div>
 
+      <!-- Presets belong to no control, so their page takes the inspector's place and goes back to where it came from. -->
       <motion.section
-        v-else
+        v-else-if="presetsPage"
+        key="presets"
+        class="absolute top-0 bottom-0 flex flex-col rounded-2xl bg-panel"
+        :style="{ left: `${INSPECTOR.x}px`, width: `${INSPECTOR.width}px` }"
+        aria-label="Gesture presets"
+        :initial="{ opacity: 0, x: 8 }"
+        :animate="{ opacity: 1, x: 0 }"
+        :exit="{ opacity: 0, x: 8, transition: EXIT }"
+        :transition="BASE">
+        <GesturePresets
+          v-model:open-id="presetsPage.openId"
+          :back-label="selected?.label ?? 'All controls'"
+          @close="presetsPage = null" />
+      </motion.section>
+
+      <motion.section
+        v-else-if="selected"
         :key="selected.control.id"
         class="absolute top-0 bottom-0 flex flex-col rounded-2xl bg-panel"
         :style="{ left: `${INSPECTOR.x}px`, width: `${INSPECTOR.width}px` }"
@@ -134,7 +150,8 @@
             <ButtonEditor
               :button="selected.button"
               :binding="bindingFor(selected.button.id)"
-              :apply="apply" />
+              :apply="apply"
+              @open-presets="(id) => (presetsPage = { openId: id })" />
             <HapticSettings v-if="selected.control.id === 'haptic'" :device="device" />
           </template>
         </div>
@@ -188,19 +205,20 @@ import type { ButtonBinding, ButtonState } from "~/composables/useAgent";
 import type { ControlId } from "~/utils/controlMap";
 import type { MenuEntry } from "~/utils/menu";
 
-const { state, device, lastGesture, lastPress, attempt } = useAgent();
+const { state, device, lastGesture, lastClick, lastPress, attempt } = useAgent();
 
 const bindings = computed(() => state.value?.bindings ?? []);
 const bindingFor = (button: string) => bindings.value.find((b) => b.button === button);
 
 const selectedId = ref<ControlId | null>(null);
 const hoveredId = ref<ControlId | null>(null);
+/** The Gesture presets page, open over whichever control opened it, on one preset or its list. */
+const presetsPage = ref<{ openId: string | null } | null>(null);
+// Picking another control on the photo goes to it, leaving the presets.
+watch(selectedId, () => (presetsPage.value = null));
 
-/** Names where the mouse's own differ from what Logitech prints on the box. */
-const LABELS: Partial<Record<ControlId, string>> = {
-  smartshift: "Top button",
-  haptic: "Haptic button",
-};
+const LABELS: Partial<Record<ControlId, string>> = BUTTON_LABELS;
+const presets = useGesturePresets();
 
 // The controls this mouse has; a button it doesn't have has no row.
 const present = computed(() => {
@@ -284,7 +302,7 @@ const frame = computed(() => mixFrames(OVERVIEW, FOCUS, focus.value));
 const reduceMotion = useReducedMotion();
 let focusing: ReturnType<typeof animate> | undefined;
 watch(
-  () => !!selected.value,
+  () => !!selected.value || !!presetsPage.value,
   (open) => {
     focusing?.stop();
     focusing = animate(focus.value, open ? 1 : 0, {
@@ -340,10 +358,17 @@ function thumbWheelSummary() {
     : `Scroll sideways ${wheel.speed}%${inverted}`;
 }
 
+// "Copy · 2× Task View · Window tiling": the click, what extra clicks run where there's room, then the moves.
 function describe(button: ButtonState) {
   const binding = bindingFor(button.id);
-  if (binding?.mode === "gesture") return "Gestures";
-  if (binding) return describeAction(binding.action ?? NOTHING);
+  if (binding) {
+    const double = hasAction(binding.doubleClick) ? binding.doubleClick : null;
+    const triple = hasAction(binding.tripleClick) ? binding.tripleClick : null;
+    const gesture = binding.mode === "gesture" ? (presets.find(binding.preset)?.name ?? "Gestures") : null;
+    const clicks = triple ? ["2×", "3×"] : double ? [gesture ? "2×" : `2× ${describeAction(double)}`] : [];
+    const click = binding.action ?? binding.gesture?.click ?? NOTHING;
+    return [describeAction(click), ...clicks, gesture].filter(Boolean).join(" · ");
+  }
   // Back, forward and middle are named after what they do on their own, so their defaults can say it.
   return MOUSE_BUTTONS[button.id] ?? "Default";
 }
@@ -354,8 +379,8 @@ const isMac = navigator.userAgent.includes("Mac");
 // Ctrl+Z puts back the last change, except in a field, where it undoes typing.
 function onKey(event: KeyboardEvent) {
   if (event.defaultPrevented) return;
-  if (event.key === "Escape" && selectedId.value) {
-    if (!document.querySelector("[data-dismissable-layer]")) selectedId.value = null;
+  if (event.key === "Escape" && (selectedId.value || presetsPage.value)) {
+    if (!document.querySelector("[data-dismissable-layer]")) goBack();
     return;
   }
   const command = isMac ? event.metaKey : event.ctrlKey;
@@ -382,8 +407,16 @@ function onMouseButton(event: MouseEvent) {
   // Otherwise the webview takes them as history and leaves the page.
   event.preventDefault();
   if (event.type !== "mouseup") return;
-  if (event.button === MOUSE_BACK) selectedId.value = null;
+  if (event.button === MOUSE_BACK) goBack();
   else if (!selectedId.value && closed) selectedId.value = closed;
+}
+
+/** One level back: a preset to the presets, the presets to where they were opened from, a control to the list. */
+function goBack() {
+  const page = presetsPage.value;
+  if (page?.openId) page.openId = null;
+  else if (page) presetsPage.value = null;
+  else selectedId.value = null;
 }
 onMounted(() => {
   window.addEventListener("mousedown", onMouseButton);
@@ -403,25 +436,30 @@ watch(lastPress, (press) => {
 
 // Names the gesture that just fired, for a moment.
 const DIRECTION_LABELS: Record<string, string> = {
-  click: "Click",
   up: "↑ Up",
   down: "↓ Down",
   left: "← Left",
   right: "→ Right",
 };
+const CLICK_LABELS: Record<number, string> = { 1: "Click", 2: "Double click", 3: "Triple click" };
 const flashed = ref<{ id: number; name: string; label: string } | null>(null);
 let flashes = 0;
 let clearFlash: ReturnType<typeof setTimeout> | undefined;
-watch(lastGesture, (gesture) => {
-  const button = device.value?.buttons.find((b) => b.id === gesture?.button);
-  if (!gesture || !button) return;
-  flashed.value = {
-    id: ++flashes,
-    name: button.name,
-    label: DIRECTION_LABELS[gesture.direction] ?? gesture.direction,
-  };
+function flash(buttonId: string | null, label: string) {
+  const button = device.value?.buttons.find((b) => b.id === buttonId);
+  if (!button) return;
+  flashed.value = { id: ++flashes, name: button.name, label };
   clearTimeout(clearFlash);
   clearFlash = setTimeout(() => (flashed.value = null), 1500);
+}
+watch(lastGesture, (gesture) => {
+  if (!gesture || gesture.phase !== "fire" || !gesture.direction) return;
+  flash(gesture.button, gesture.path.length > 1 ? pathText(gesture.path) : DIRECTION_LABELS[gesture.direction]!);
+});
+// A plain button's single click is just a press, which would flash on every use.
+watch(lastClick, (click) => {
+  if (!click || (click.count === 1 && bindingFor(click.button ?? "")?.mode !== "gesture")) return;
+  flash(click.button, CLICK_LABELS[click.count] ?? `${click.count} clicks`);
 });
 onBeforeUnmount(() => clearTimeout(clearFlash));
 
