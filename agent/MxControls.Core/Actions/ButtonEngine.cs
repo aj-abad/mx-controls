@@ -46,11 +46,11 @@ public sealed class ButtonEngine : IAsyncDisposable
     /// <summary>Waveform played when a gesture direction fires, or null for none.</summary>
     public HapticWaveform? GestureHaptic { get; set; } = HapticWaveform.SubtleCollision;
 
-    private ButtonEngine(MxDevice device, IPlatform platform)
+    private ButtonEngine(MxDevice device, IPlatform platform, MacroLibrary? macros)
     {
         _device = device;
         _platform = platform;
-        _runner = new ActionRunner(platform, _gate);
+        _runner = new ActionRunner(platform, _gate, macros, error => Failed?.Invoke(error));
     }
 
     private static long Now => Stopwatch.GetTimestamp() * 1000 / Stopwatch.Frequency;
@@ -79,9 +79,11 @@ public sealed class ButtonEngine : IAsyncDisposable
         }
     }
 
-    public static async Task<ButtonEngine> StartAsync(MxDevice device, IPlatform platform, IEnumerable<ButtonBinding> bindings)
+    /// <param name="macros">The macros <c>macro</c> actions run, which can change while the engine runs.</param>
+    public static async Task<ButtonEngine> StartAsync(
+        MxDevice device, IPlatform platform, IEnumerable<ButtonBinding> bindings, MacroLibrary? macros = null)
     {
-        var engine = new ButtonEngine(device, platform);
+        var engine = new ButtonEngine(device, platform, macros);
         device.Channel.EventReceived += engine.OnEvent;
         try
         {

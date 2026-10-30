@@ -22,13 +22,17 @@ public static class Protocol
 /// <param name="GesturePresets">Every preset: the built-in ones, as edited if they have been, then the user's own.</param>
 /// <param name="BuiltInPresets">The built-in presets as they come, so a client can tell an edited one and reset it.</param>
 /// <param name="PresetUses">Which buttons follow which preset, in every profile.</param>
+/// <param name="MacroUses">Which buttons, thumb wheels and gesture presets run which macro.</param>
 public sealed record AgentState(
     bool Connected, DeviceState? Device, IReadOnlyList<ButtonBinding> Bindings, ThumbWheelSettings ThumbWheel,
     IReadOnlyList<ProfileSummary> Profiles, string ActiveProfile, bool StartAtLogin, bool OptionsPlusRunning, string? Error,
     long Revision, int MultiClickMs, IReadOnlyList<GesturePreset> GesturePresets, IReadOnlyList<GesturePreset> BuiltInPresets,
-    IReadOnlyList<PresetUse> PresetUses);
+    IReadOnlyList<PresetUse> PresetUses, IReadOnlyList<Macro> Macros, IReadOnlyList<MacroUse> MacroUses);
 
 public sealed record PresetUse(string Preset, string Profile, string Button);
+
+/// <summary>Where a macro runs: a button or the thumb wheel in a profile, or a step of a gesture preset.</summary>
+public sealed record MacroUse(string Macro, string? Profile = null, string? Button = null, string? Preset = null);
 
 public sealed record ProfileSummary(string Id, string Name, string? Icon);
 
@@ -79,5 +83,6 @@ public sealed record KeyCaptureEvent(bool Active);
 [JsonSerializable(typeof(AgentSettings))]
 [JsonSerializable(typeof(ButtonBinding[]))]
 [JsonSerializable(typeof(GesturePreset))]
+[JsonSerializable(typeof(Macro))]
 [JsonSerializable(typeof(ThumbWheelSettings))]
 internal sealed partial class AgentJson : JsonSerializerContext;

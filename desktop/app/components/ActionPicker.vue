@@ -62,11 +62,12 @@ import {
   PopoverRoot,
   PopoverTrigger,
 } from "reka-ui";
-import type { ButtonAction } from "~/composables/useAgent";
+import type { ButtonAction, Macro } from "~/composables/useAgent";
 
 /**
- * Picks an action by what it does: a preset such as "Copy", or one of the custom choices, "shortcut" (a macro),
- * "hold" (a key) and "none". `modelValue` is the ID of the choice shown.
+ * Picks an action by what it does: a preset such as "Copy", a saved macro as "macro:<id>", or one of the custom
+ * choices: "newMacro", "hold" (a key), "none", and "shortcut" for keys recorded before macros. `modelValue` is the
+ * ID of the choice shown.
  */
 const { modelValue, label, allowHold = true, defaultLabel } = defineProps<{
   modelValue: string;
@@ -103,12 +104,16 @@ function hintFor(action: ButtonAction) {
   return action.keys.map((key) => SHORT_KEYS[key] ?? keyLabel(key)).join(" ");
 }
 
-// A macro sends its keys once, or over and over while repeating; a key stays down as long as the button.
+// A macro plays back what it was given; a key stays down as long as the button.
 const CUSTOM: Choice[] = [
-  { id: "shortcut", label: "Macro…", keywords: "custom keys press record keyboard shortcut" },
+  { id: "newMacro", label: "New macro…", keywords: "custom keys press record keyboard shortcut" },
   { id: "hold", label: "Key…", keywords: "custom keys modifier hold down while held" },
   { id: "none", label: "Do nothing", keywords: "off disable none" },
 ];
+// Keys recorded straight onto an action, from before macros; only shown for an action that still has them.
+const RECORDED: Choice = { id: "shortcut", label: "Recorded keys…", keywords: "custom keys" };
+
+const { state } = useAgent();
 
 const choices = computed(() => {
   const all: (Choice & { group: string })[] = defaultLabel
@@ -121,7 +126,10 @@ const choices = computed(() => {
     hint: hintFor(preset.action),
     keywords: preset.keywords,
   })));
+  for (const macro of state.value?.macros ?? [])
+    all.push({ id: `macro:${macro.id}`, group: "Macros", label: macro.name, hint: macroHint(macro), keywords: "macro" });
   for (const choice of CUSTOM) if (allowHold || choice.id !== "hold") all.push({ ...choice, group: "Custom" });
+  if (modelValue === "shortcut") all.push({ ...RECORDED, group: "Custom" });
   return all;
 });
 
@@ -145,10 +153,16 @@ const current = computed(() => {
   return { label: choice?.label.replace(/…$/, "") ?? "Choose an action", hint: choice?.hint };
 });
 
+/** A one-step macro shows its keys, like a built-in action does. */
+function macroHint(macro: Macro) {
+  const [only] = macro.steps;
+  return macro.steps.length === 1 && only?.type === "keys" && only.keys ? hintFor({ type: "press", keys: only.keys }) : undefined;
+}
+
 let recordAfterClose = false;
 
 function pick(value: string) {
-  recordAfterClose = value === "shortcut" || value === "hold";
+  recordAfterClose = value === "shortcut" || value === "hold" || value === "newMacro";
   emit("update:modelValue", value);
   open.value = false;
 }

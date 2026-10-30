@@ -4,7 +4,7 @@ using MxControls.Platform;
 namespace MxControls.Tests;
 
 /// <summary>
-/// Records input as lines such as "down ShiftLeft", "up ShiftLeft", "scroll 1", "hscroll 60", "system taskView" and "mouse down back".
+/// Records input as lines such as "down ShiftLeft", "up ShiftLeft", "type hello", "scroll 1", "hscroll 60", "system taskView" and "mouse down back".
 /// </summary>
 internal sealed class FakePlatform : IPlatform, IInputInjector
 {
@@ -24,6 +24,7 @@ internal sealed class FakePlatform : IPlatform, IInputInjector
     public bool Supports(string code) => code is "ShiftLeft" or "ControlLeft" or "KeyC" or "KeyV" or "Delete" or "MediaPlayPause";
     public void Down(string code) => Record($"down {code}");
     public void Up(string code) => Record($"up {code}");
+    public void Type(string text) => Record($"type {text}");
     public void Scroll(int notches) => Record($"scroll {notches}");
     public void ScrollHorizontal(int units) => Record($"hscroll {units}");
     public bool SupportsMouse(string button) => button is MouseButtons.Back or MouseButtons.Forward;

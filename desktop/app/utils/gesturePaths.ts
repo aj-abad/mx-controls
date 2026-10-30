@@ -23,8 +23,8 @@ const next = (step: GestureStep, d: Direction) => step[d] ?? null;
 const hasNext = (step: GestureStep) => DIRECTIONS.some((d) => !!step[d]);
 
 /** A step's own action, without the steps beyond it. */
-export function actionOf({ type, keys, system, repeat, mouse }: GestureStep): ButtonAction {
-  return { type, keys, system, repeat, mouse };
+export function actionOf({ type, keys, system, repeat, mouse, macro }: GestureStep): ButtonAction {
+  return { type, keys, system, repeat, mouse, macro };
 }
 
 /** A step with a new action, keeping the steps beyond it. */

@@ -8,9 +8,14 @@ namespace MxControls.Actions;
 /// a repeating action fires again after <see cref="ButtonEngine.RepeatDelay"/> and every
 /// <see cref="ButtonEngine.RepeatInterval"/> until then. Callers serialize calls.
 /// </summary>
-internal sealed class ActionRunner(IPlatform platform, object gate)
+/// <remarks>
+/// A macro without waits runs at once, like a press. One that waits runs in the background, one macro at a
+/// time, so two never interleave their keys; a repeat that comes while one is still running is skipped.
+/// </remarks>
+internal sealed class ActionRunner(IPlatform platform, object gate, MacroLibrary? macros = null, Action<Exception>? failed = null)
 {
     private readonly Dictionary<ushort, (ButtonAction Action, Timer? Repeat)> _active = [];
+    private readonly SemaphoreSlim _macroTurn = new(1, 1);
 
     public void Begin(ushort cid, ButtonAction action)
     {
@@ -24,13 +29,13 @@ internal sealed class ActionRunner(IPlatform platform, object gate)
             case ActionTypes.Click:
                 platform.Input.MouseDown(action.Mouse!);
                 break;
-            case ActionTypes.Press or ActionTypes.System:
+            case ActionTypes.Press or ActionTypes.System or ActionTypes.Macro:
                 Run(action);
                 break;
             default:
                 return;
         }
-        Timer? repeat = action.Repeat && action.Type is ActionTypes.Press or ActionTypes.System
+        Timer? repeat = action.Repeat && action.Type is ActionTypes.Press or ActionTypes.System or ActionTypes.Macro
             ? new Timer(_ => Repeat(cid, action), null, ButtonEngine.RepeatDelay, ButtonEngine.RepeatInterval)
             : null;
         _active[cid] = (action, repeat);
@@ -59,10 +64,16 @@ internal sealed class ActionRunner(IPlatform platform, object gate)
     }
 
     /// <summary>Runs an action once, as a tap; used for a gesture's click.</summary>
-    public void Run(ButtonAction action)
+    public void Run(ButtonAction action) => Run(action, repeating: false);
+
+    private void Run(ButtonAction action, bool repeating)
     {
         switch (action.Type)
         {
+            case ActionTypes.Macro:
+                if (macros?.Find(action.Macro!) is { } macro)
+                    RunMacro(macro, repeating);
+                break;
             case ActionTypes.Hold or ActionTypes.Press:
                 foreach (var key in action.Keys!)
                     platform.Input.Down(key);
@@ -85,7 +96,61 @@ internal sealed class ActionRunner(IPlatform platform, object gate)
         {
             // The timer can fire once more after End disposed it.
             if (_active.TryGetValue(cid, out var active) && ReferenceEquals(active.Action, action))
-                Run(action);
+                Run(action, repeating: true);
+        }
+    }
+
+    private void RunMacro(Macro macro, bool repeating)
+    {
+        if (!macro.Waits)
+        {
+            foreach (var step in macro.Steps)
+                RunStep(step);
+            return;
+        }
+        if (repeating && _macroTurn.CurrentCount == 0)
+            return;
+        _ = Task.Run(async () =>
+        {
+            await _macroTurn.WaitAsync();
+            try
+            {
+                foreach (var step in macro.Steps)
+                {
+                    if (step.Type == MacroStepTypes.Wait)
+                        await Task.Delay(step.Ms);
+                    else
+                        RunStep(step);
+                }
+            }
+            catch (Exception error)
+            {
+                failed?.Invoke(error);
+            }
+            finally
+            {
+                _macroTurn.Release();
+            }
+        });
+    }
+
+    private void RunStep(MacroStep step)
+    {
+        switch (step.Type)
+        {
+            case MacroStepTypes.Keys:
+                foreach (var key in step.Keys!)
+                    platform.Input.Down(key);
+                foreach (var key in step.Keys!.Reverse())
+                    platform.Input.Up(key);
+                break;
+            case MacroStepTypes.Text:
+                platform.Input.Type(step.Text!);
+                break;
+            case MacroStepTypes.Click:
+                platform.Input.MouseDown(step.Mouse!);
+                platform.Input.MouseUp(step.Mouse!);
+                break;
         }
     }
 }

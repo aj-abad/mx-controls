@@ -1,165 +1,144 @@
 <template>
-  <header class="px-6 pt-4 pb-5">
-    <button
-      type="button"
-      class="-ml-1 mb-2 inline-flex items-center gap-1.5 rounded-full px-1 text-sm text-ink-3 hover:text-ink"
-      @click="preset ? (openId = null) : emit('close')">
-      <PhArrowLeft class="size-4" />
-      {{ preset ? "Gesture presets" : backLabel }}
-    </button>
-    <template v-if="!preset">
-      <h2 class="text-lg font-semibold">Gesture presets</h2>
-      <p class="mt-0.5 text-sm text-ink-3">Moves you set up once and give to any button, in any profile.</p>
-    </template>
-    <template v-else>
-      <h2 v-if="isBuiltIn" class="text-lg font-semibold">{{ preset.name }}</h2>
-      <input
-        v-else
-        :value="preset.name"
-        aria-label="Preset name"
-        class="-ml-1.5 w-full rounded-md bg-transparent px-1.5 py-0.5 text-lg font-semibold outline-none hover:ring-1 hover:ring-line focus:ring-1 focus:ring-accent"
-        @change="rename" />
-      <p class="mt-0.5 text-sm text-ink-3">{{ usage }}</p>
-    </template>
-  </header>
-
-  <div v-if="!preset" class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-6 pb-6">
-    <button
-      v-for="card in cards"
-      :key="card.preset.id"
-      type="button"
-      class="flex w-full items-center gap-3 rounded-xl bg-fill/50 py-2 pr-3 pl-2 text-left ring-1 ring-line ring-inset hover:bg-fill"
-      @click="openId = card.preset.id">
-      <PresetCompass :preset="card.preset" :size="44" class="shrink-0" />
-      <span class="flex min-w-0 flex-1 flex-col">
-        <span class="flex items-center gap-1.5 text-sm font-medium">
-          {{ card.preset.name }}
-          <span v-if="card.tag" class="rounded-md bg-fill px-1.5 py-px text-[10.5px] font-semibold text-ink-3">{{ card.tag }}</span>
-        </span>
-        <span class="truncate text-xs text-ink-3">{{ card.used }}</span>
-      </span>
-      <span class="shrink-0 text-xs text-ink-2">{{ card.counts }}</span>
-      <PhCaretRight class="size-4 shrink-0 text-ink-3" />
-    </button>
-    <button type="button" :class="GHOST" @click="createNew">+ New preset</button>
-  </div>
-
-  <div v-else class="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-6 pb-6">
-    <section class="flex flex-col gap-1.5" aria-label="Moves">
-      <div class="flex min-h-14 items-center justify-between">
-        <h3 class="text-xs font-medium text-ink-3">Moves</h3>
-        <PresetCompass :preset="draft!" :highlight="selectedPath" />
-      </div>
-      <TriggerRow
-        v-for="row in rows"
-        :key="pathKey(row.path)"
-        :label="row.path.length === 1 ? DIRECTION_LABELS[row.path[0]!] : ''"
-        :path="row.path"
-        :indent="row.path.length - 1"
-        :caption="row.instant ? 'instant' : `on release${row.leadsOn ? ' · leads on' : ''}`"
-        :selected="pathKey(row.path) === selectedKey"
-        selectable
-        :select-label="`Show ${pathText(row.path)} on the compass`"
-        @select="selectedKey = pathKey(row.path)">
-        <div class="flex items-start gap-1">
-          <ActionEditor
-            :model-value="actionOf(row.step)"
-            class="min-w-0 flex-1"
-            :label="`${draft!.name} ${pathText(row.path)}`"
-            :allow-hold="row.instant"
-            :allow-repeat="row.instant"
-            repeat-label="Repeat as you keep moving"
-            @update:model-value="(action) => setStep(row.path, action)" />
-          <UiButton
-            v-if="row.path.length > 1"
-            variant="ghost"
-            size="sm"
-            class="mt-1"
-            :aria-label="`Remove ${pathText(row.path)} and the steps beyond it`"
-            @click="removePath(row.path)">
-            <PhX class="size-4" />
-          </UiButton>
-        </div>
-      </TriggerRow>
-
-      <div
-        v-if="recording"
-        class="mt-2 flex flex-col gap-2.5 rounded-xl bg-fill/60 p-3"
-        role="group"
-        aria-label="Draw a path"
-        @keydown="onRecorderKey">
-        <div class="flex min-h-6 items-center gap-2">
-          <span class="flex gap-0.5" aria-live="polite">
-            <b v-for="(d, i) in recording.path" :key="i" class="flex size-5 items-center justify-center rounded-md bg-fill-strong text-xs font-semibold">
-              {{ GLYPHS[d] }}
-            </b>
+  <div class="flex h-full gap-4">
+    <section aria-label="Gesture presets" class="flex w-72 shrink-0 flex-col gap-1 overflow-y-auto rounded-2xl bg-panel p-2.5">
+      <button
+        v-for="card in cards"
+        :key="card.preset.id"
+        type="button"
+        :aria-current="card.preset.id === preset?.id ? 'true' : undefined"
+        class="flex w-full items-center gap-3 rounded-xl py-1.5 pr-2.5 pl-1.5 text-left"
+        :class="card.preset.id === preset?.id ? 'bg-fill ring-1 ring-line ring-inset' : 'hover:bg-fill/60'"
+        @click="openId = card.preset.id">
+        <PresetCompass :preset="card.preset" :size="40" class="shrink-0" />
+        <span class="flex min-w-0 flex-1 flex-col">
+          <span class="flex items-center gap-1.5 text-sm font-medium">
+            <span class="truncate">{{ card.preset.name }}</span>
+            <span v-if="card.tag" class="shrink-0 rounded-md bg-fill px-1.5 py-px text-[10.5px] font-semibold text-ink-3">{{ card.tag }}</span>
           </span>
-          <span class="h-4.5 w-0.5 bg-accent" />
-          <span class="ml-auto text-xs text-ink-3">{{ recording.path.length ? "Runs when you let go" : "Draw the path with the arrows" }}</span>
-        </div>
-        <div class="flex items-center gap-1.5">
-          <UiButton v-for="d in DIRECTIONS" :key="d" size="sm" :aria-label="DIRECTION_LABELS[d]" @click="record(d)">{{ GLYPHS[d] }}</UiButton>
-          <UiButton variant="ghost" size="sm" aria-label="Remove the last step" @click="unrecord"><PhBackspace class="size-4" /></UiButton>
-          <span class="flex-1" />
-          <UiButton variant="ghost" size="sm" class="whitespace-nowrap" @click="recording = null">Cancel</UiButton>
-          <UiButton size="sm" class="whitespace-nowrap" @click="addRecorded">Add path</UiButton>
-        </div>
-        <p v-if="recording.problem" class="text-xs text-warn" role="alert">{{ recording.problem }}</p>
-      </div>
-      <div class="mt-2 flex flex-wrap items-center gap-2">
-        <UiButton v-if="!recording" size="sm" @click="startRecording">+ Add a path</UiButton>
-      </div>
+          <span class="truncate text-xs text-ink-3">{{ card.used }}</span>
+        </span>
+      </button>
+      <button type="button" :class="GHOST" @click="createNew">+ New preset</button>
     </section>
 
-    <UiSlider
-      v-model="spacing"
-      label="Spacing between steps"
-      description="How far apart the steps of a run are. Wider is easier to hit; narrower is quicker."
-      :min="MIN_SPACING_MM"
-      :max="MAX_SPACING_MM"
-      :step="0.5"
-      :default-value="DEFAULT_SPACING_MM"
-      :format="(mm) => `${mm} mm`"
-      @commit="(mm) => (draft!.spacingMm = mm)" />
+    <section v-if="preset && draft" :aria-label="preset.name" class="flex min-w-0 flex-1 flex-col rounded-2xl bg-panel">
+      <header class="flex items-start gap-2 px-6 pt-5 pb-4">
+        <div class="min-w-0 flex-1">
+          <h2 v-if="isBuiltIn" class="text-xl font-semibold">{{ preset.name }}</h2>
+          <input
+            v-else
+            :value="preset.name"
+            aria-label="Preset name"
+            class="-ml-1.5 w-full rounded-md bg-transparent px-1.5 py-0.5 text-xl font-semibold outline-none hover:ring-1 hover:ring-line focus:ring-1 focus:ring-accent"
+            @change="rename" />
+          <p class="mt-0.5 text-sm text-ink-3">
+            {{ countsText(draft) }} · {{ isBuiltIn ? (isChanged ? "built-in, changed" : "built-in") : "yours" }}. {{ usage }}
+          </p>
+        </div>
+        <UiButton variant="ghost" size="sm" @click="duplicate">Duplicate</UiButton>
+        <UiButton v-if="isBuiltIn" variant="ghost" size="sm" :disabled="!isChanged" @click="presets.discard(preset)">Reset to built-in</UiButton>
+        <UiButton v-else variant="ghost" size="sm" @click="askDelete">Delete</UiButton>
+      </header>
 
-    <p v-if="unfinished" class="text-sm text-warn">
-      Choose an action for “{{ unfinished }}” to save this preset.{{ uses.length ? " Until then, its buttons keep the last saved version." : "" }}
-    </p>
-    <p v-if="note" class="text-sm text-ink-3" role="status">{{ note }}</p>
+      <div class="flex min-h-0 flex-1 gap-8 overflow-y-auto px-6 pb-6">
+        <div class="flex w-56 shrink-0 flex-col gap-5">
+          <PresetCompass :preset="draft" :size="224" :weight="4" :highlight="selectedPath" />
+          <UiSlider
+            v-model="spacing"
+            label="Spacing between steps"
+            description="How far apart the steps of a run are. Wider is easier to hit; narrower is quicker."
+            :min="MIN_SPACING_MM"
+            :max="MAX_SPACING_MM"
+            :step="0.5"
+            :default-value="DEFAULT_SPACING_MM"
+            :format="(mm) => `${mm} mm`"
+            @commit="(mm) => (draft!.spacingMm = mm)" />
+        </div>
 
-    <div v-if="confirming" class="flex flex-col gap-2 rounded-xl bg-warn-fill p-3 text-[13px] text-warn" role="alertdialog" aria-label="Delete preset">
-      <p>Delete “{{ preset.name }}”? {{ uses.join(" and ") }} {{ uses.length === 1 ? "keeps its clicks and loses its moves" : "keep their clicks and lose their moves" }}.</p>
-      <div class="flex justify-end gap-1.5">
-        <UiButton variant="ghost" size="sm" @click="confirming = false">Cancel</UiButton>
-        <UiButton size="sm" @click="deletePreset">Delete preset</UiButton>
+        <section class="flex min-w-0 flex-1 flex-col gap-1.5" aria-label="Moves">
+          <TriggerRow
+            v-for="row in rows"
+            :key="pathKey(row.path)"
+            :label="row.path.length === 1 ? DIRECTION_LABELS[row.path[0]!] : ''"
+            :path="row.path"
+            :indent="row.path.length - 1"
+            :caption="row.instant ? 'instant' : `on release${row.leadsOn ? ' · leads on' : ''}`"
+            :selected="pathKey(row.path) === selectedKey"
+            selectable
+            :select-label="`Show ${pathText(row.path)} on the compass`"
+            @select="selectedKey = pathKey(row.path)">
+            <div class="flex items-start gap-1">
+              <ActionEditor
+                :model-value="actionOf(row.step)"
+                class="min-w-0 flex-1"
+                :label="`${draft.name} ${pathText(row.path)}`"
+                :allow-hold="row.instant"
+                :allow-repeat="row.instant"
+                repeat-label="Repeat as you keep moving"
+                @update:model-value="(action) => setStep(row.path, action)" />
+              <UiButton
+                v-if="row.path.length > 1"
+                variant="ghost"
+                size="sm"
+                class="mt-1"
+                :aria-label="`Remove ${pathText(row.path)} and the steps beyond it`"
+                @click="removePath(row.path)">
+                <PhX class="size-4" />
+              </UiButton>
+            </div>
+          </TriggerRow>
+
+          <div
+            v-if="recording"
+            class="mt-2 flex flex-col gap-2.5 rounded-xl bg-fill/60 p-3"
+            role="group"
+            aria-label="Draw a path"
+            @keydown="onRecorderKey">
+            <div class="flex min-h-6 items-center gap-2">
+              <span class="flex gap-0.5" aria-live="polite">
+                <b v-for="(d, i) in recording.path" :key="i" class="flex size-5 items-center justify-center rounded-md bg-fill-strong text-xs font-semibold">
+                  {{ GLYPHS[d] }}
+                </b>
+              </span>
+              <span class="h-4.5 w-0.5 bg-accent" />
+              <span class="ml-auto text-xs text-ink-3">{{ recording.path.length ? "Runs when you let go" : "Draw the path with the arrows" }}</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <UiButton v-for="d in DIRECTIONS" :key="d" size="sm" :aria-label="DIRECTION_LABELS[d]" @click="record(d)">{{ GLYPHS[d] }}</UiButton>
+              <UiButton variant="ghost" size="sm" aria-label="Remove the last step" @click="unrecord"><PhBackspace class="size-4" /></UiButton>
+              <span class="flex-1" />
+              <UiButton variant="ghost" size="sm" class="whitespace-nowrap" @click="recording = null">Cancel</UiButton>
+              <UiButton size="sm" class="whitespace-nowrap" @click="addRecorded">Add path</UiButton>
+            </div>
+            <p v-if="recording.problem" class="text-xs text-warn" role="alert">{{ recording.problem }}</p>
+          </div>
+          <div class="mt-2 flex flex-wrap items-center gap-2">
+            <UiButton v-if="!recording" size="sm" @click="startRecording">+ Add a path</UiButton>
+          </div>
+
+          <p v-if="unfinished" class="mt-2 text-sm text-warn">
+            Choose an action for “{{ unfinished }}” to save this preset.{{ uses.length ? " Until then, its buttons keep the last saved version." : "" }}
+          </p>
+          <p v-if="note" class="mt-2 text-sm text-ink-3" role="status">{{ note }}</p>
+          <div v-if="confirming" class="mt-2 flex flex-col gap-2 rounded-xl bg-warn-fill p-3 text-[13px] text-warn" role="alertdialog" aria-label="Delete preset">
+            <p>Delete “{{ preset.name }}”? {{ uses.join(" and ") }} {{ uses.length === 1 ? "keeps its clicks and loses its moves" : "keep their clicks and lose their moves" }}.</p>
+            <div class="flex justify-end gap-1.5">
+              <UiButton variant="ghost" size="sm" @click="confirming = false">Cancel</UiButton>
+              <UiButton size="sm" @click="deletePreset">Delete preset</UiButton>
+            </div>
+          </div>
+        </section>
       </div>
-    </div>
+    </section>
   </div>
-
-  <footer class="flex h-14 shrink-0 items-center gap-1 border-t border-line pr-3 pl-6">
-    <span class="flex flex-1 items-center gap-2 text-[13px] text-ink-3">
-      <template v-if="preset">
-        <span class="size-1.5 rounded-full" :class="isBuiltIn && !isChanged ? 'bg-fill-strong' : 'bg-accent'" />
-        {{ isBuiltIn ? (isChanged ? "Built-in, changed" : "Built-in") : "Yours" }}
-      </template>
-      <template v-else>A button follows its preset, so editing one changes every button that uses it.</template>
-    </span>
-    <template v-if="preset">
-      <UiButton variant="ghost" size="sm" @click="duplicate">Duplicate</UiButton>
-      <UiButton v-if="isBuiltIn" variant="ghost" size="sm" :disabled="!isChanged" @click="presets.discard(preset)">Reset to built-in</UiButton>
-      <UiButton v-else variant="ghost" size="sm" @click="askDelete">Delete</UiButton>
-    </template>
-  </footer>
 </template>
 
 <script setup lang="ts">
-import { PhArrowLeft, PhBackspace, PhCaretRight, PhX } from "@phosphor-icons/vue";
+import { PhBackspace, PhX } from "@phosphor-icons/vue";
 import type { ButtonAction, Direction, GesturePreset } from "~/composables/useAgent";
 
-const { backLabel } = defineProps<{ backLabel: string }>();
-/** The preset open for editing, or null for the list. */
-const openId = defineModel<string | null>("openId", { required: true });
-const emit = defineEmits<{ close: [] }>();
+/** The Gestures page: every preset on the left, the one open on the right. */
+const { openPreset: openId } = usePage();
 
 const GHOST =
   "flex h-11 w-full shrink-0 items-center rounded-xl border border-dashed border-fill-strong px-3.5 text-sm text-ink-3 hover:border-ink-3 hover:text-ink";
@@ -167,13 +146,13 @@ const GHOST =
 const { lastGesture, state } = useAgent();
 const presets = useGesturePresets();
 
-const preset = computed(() => presets.find(openId.value));
+const preset = computed(() => presets.find(openId.value) ?? presets.presets.value[0]);
 const isBuiltIn = computed(() => !!preset.value && !!presets.builtIn(preset.value.id));
 const isChanged = computed(() => !!preset.value && presets.changed(preset.value));
 const uses = computed(() => (preset.value ? presets.usedBy(preset.value.id) : []));
 const usage = computed(() => {
   const list = uses.value;
-  if (!list.length) return "Not used by any button yet. Pick it under “Move while holding” on a button.";
+  if (!list.length) return "No button uses it yet; pick it under “Move while holding” on a button.";
   return `Used by ${list.join(" and ")}. Changes apply to ${list.length === 1 ? "it" : "all of them"} straight away.`;
 });
 
@@ -213,7 +192,7 @@ watch(
   },
   { immediate: true },
 );
-watch(openId, () => {
+watch(() => preset.value?.id, () => {
   note.value = "";
   confirming.value = false;
   recording.value = null;
@@ -312,8 +291,7 @@ function askDelete() {
 }
 
 async function deletePreset() {
-  const doomed = preset.value!;
-  if (await presets.discard(doomed)) openId.value = null;
+  if (await presets.discard(preset.value!)) openId.value = null;
 }
 
 // Using a button that follows this preset picks out the path it took.

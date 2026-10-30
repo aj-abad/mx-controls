@@ -27,10 +27,11 @@ public sealed record Profile(
 /// <param name="GesturePresets">
 /// The user's own presets, and built-in ones they've edited, under the built-in's ID. They belong to no profile.
 /// </param>
+/// <param name="Macros">The saved macros, which <c>macro</c> actions run by ID. They belong to no profile.</param>
 public sealed record AgentSettings(
     IReadOnlyList<ButtonBinding>? Bindings = null, bool StartAtLogin = true, IReadOnlyList<LegacyMapping>? Mappings = null,
     IReadOnlyList<Profile>? Profiles = null, string? ActiveProfile = null, int MultiClickMs = ClickCounter.DefaultWindowMs,
-    IReadOnlyList<GesturePreset>? GesturePresets = null)
+    IReadOnlyList<GesturePreset>? GesturePresets = null, IReadOnlyList<Macro>? Macros = null)
 {
     public const int MinMultiClickMs = 150;
     public const int MaxMultiClickMs = 600;
@@ -78,10 +79,10 @@ public sealed record AgentSettings(
     {
         var legacy = Bindings ?? Mappings?.Select(m => ButtonBinding.Hold(m.Button, m.Key)).ToArray();
         if (legacy is null)
-            return PresetLibrary.Migrated(this);
+            return MacroMigration.Migrated(PresetLibrary.Migrated(this));
         var profiles = Profiles is { Count: > 0 } existing ? existing : [Profile.Default with { Bindings = legacy }];
-        return PresetLibrary.Migrated(
-            this with { Bindings = null, Mappings = null, Profiles = profiles, ActiveProfile = ActiveProfile ?? profiles[0].Id });
+        return MacroMigration.Migrated(PresetLibrary.Migrated(
+            this with { Bindings = null, Mappings = null, Profiles = profiles, ActiveProfile = ActiveProfile ?? profiles[0].Id }));
     }
 }
 

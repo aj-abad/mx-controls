@@ -286,8 +286,9 @@ public class BindingTests
         var first = settings.AllProfiles[0].AllBindings[0];
         Assert.Equal(preset.Id, first.Preset);
         Assert.Null(first.Gesture);
-        Assert.Equal(["KeyC"], first.Action!.Keys);
-        Assert.Equal(["Delete"], first.DoubleClick!.Keys);
+        // Recorded keys moved on into macros too, once the gesture was a preset.
+        Assert.Equal(["KeyC"], settings.Macros!.Single(m => m.Id == first.Action!.Macro).Steps[0].Keys);
+        Assert.Equal(["Delete"], settings.Macros!.Single(m => m.Id == first.DoubleClick!.Macro).Steps[0].Keys);
         Assert.Equal(preset.Id, settings.AllProfiles[1].AllBindings[0].Preset);
         Assert.Same(settings, settings.Migrated());
     }

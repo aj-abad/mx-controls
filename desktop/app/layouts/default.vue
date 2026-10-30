@@ -15,22 +15,43 @@
         <span v-if="device.battery.charging" class="sr-only">, charging</span>
       </span>
       <span class="flex-1" />
+      <nav v-if="pipeConnected && device" aria-label="Pages" class="flex gap-0.5 rounded-xl bg-fill/70 p-0.5">
+        <button
+          v-for="tab in tabs"
+          :key="tab.id"
+          type="button"
+          :aria-current="page === tab.id ? 'page' : undefined"
+          class="flex h-7 items-center gap-1.5 rounded-[10px] px-3.5 text-[13px] font-medium transition-colors"
+          :class="page === tab.id ? 'bg-panel text-ink shadow-sm' : 'text-ink-3 hover:text-ink'"
+          @click="page = tab.id">
+          {{ tab.label }}
+          <span v-if="tab.count !== undefined" class="text-[11px] font-normal text-ink-3">{{ tab.count }}</span>
+        </button>
+      </nav>
+      <span class="flex-1" />
       <WindowControls v-if="!isMac" />
     </header>
 
-    <!-- Which computer the mouse is on, then which profile it's running; both change often, so both stay in view. -->
+    <!-- Which computer the mouse is on, then which profile it's running; both change often, so both stay in view.
+         Gestures and macros belong to no profile, so their pages say so instead. -->
     <div v-if="pipeConnected && device" class="flex h-10 shrink-0 items-center gap-3 px-8">
-      <template v-if="device.hosts">
-        <EasySwitch :hosts="device.hosts" />
-        <span class="h-5 w-px shrink-0 bg-line" />
+      <template v-if="page === 'buttons'">
+        <template v-if="device.hosts">
+          <EasySwitch :hosts="device.hosts" />
+          <span class="h-5 w-px shrink-0 bg-line" />
+        </template>
+        <ProfileBar />
       </template>
-      <ProfileBar />
+      <p v-else class="text-sm text-ink-3">
+        {{ page === "gestures" ? "Gesture presets" : "Macros" }} belong to no profile. Every profile can use them, and
+        editing one changes everything that uses it.
+      </p>
     </div>
 
     <!-- Takes its space at once and only fades: growing its height would re-zoom the whole stage every frame. -->
     <AnimatePresence :initial="false">
       <motion.div
-        v-if="pipeConnected && device && shared"
+        v-if="pipeConnected && device && shared && page === 'buttons'"
         class="shrink-0"
         :initial="{ opacity: 0 }"
         :animate="{ opacity: 1 }"
@@ -100,9 +121,17 @@
 <script setup lang="ts">
 import { PhLightning, PhWarning, PhWarningCircle, PhX } from "@phosphor-icons/vue";
 import { AnimatePresence, motion } from "motion-v";
+import type { Page } from "~/composables/usePage";
 
 const { state, device, pipeConnected, failure, dismissFailure } = useAgent();
 
 const shared = computed(() => (state.value ? sharedControlCount(state.value) : 0));
+
+const { page } = usePage();
+const tabs = computed<{ id: Page; label: string; count?: number }[]>(() => [
+  { id: "buttons", label: "Buttons" },
+  { id: "gestures", label: "Gestures", count: state.value?.gesturePresets.length },
+  { id: "macros", label: "Macros", count: state.value?.macros.length },
+]);
 const isMac = navigator.userAgent.includes("Mac");
 </script>

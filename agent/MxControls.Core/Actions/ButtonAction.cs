@@ -7,16 +7,19 @@ namespace MxControls.Actions;
 /// What a button, or one direction of a gesture, does. <see cref="Type"/> is one of <see cref="ActionTypes"/>:
 /// <c>hold</c> keeps <see cref="Keys"/> down for as long as the button is held, <c>press</c> taps them,
 /// <c>system</c> runs <see cref="System"/>, <c>click</c> holds the mouse button <see cref="Mouse"/>,
-/// and <c>none</c> does nothing.
+/// <c>macro</c> runs the <see cref="Actions.Macro"/> called <see cref="Macro"/>, and <c>none</c> does nothing.
 /// </summary>
 /// <param name="Keys"><c>KeyboardEvent.code</c> names in press order, modifiers first.</param>
 /// <param name="Repeat">
-/// For <c>press</c> and <c>system</c>: repeat while held, after <see cref="ButtonEngine.RepeatDelay"/>. In a gesture
-/// direction, repeat instead for every <see cref="GestureTracker.DefaultRepeatStepMm"/> the movement keeps going.
+/// For <c>press</c>, <c>system</c> and <c>macro</c>: repeat while held, after <see cref="ButtonEngine.RepeatDelay"/>.
+/// In a gesture direction, repeat instead for every <see cref="GestureTracker.DefaultRepeatStepMm"/> the movement
+/// keeps going.
 /// </param>
 /// <param name="Mouse">For <c>click</c>: one of <see cref="MouseButtons"/>.</param>
+/// <param name="Macro">For <c>macro</c>: the macro's ID.</param>
 public sealed record ButtonAction(
-    string Type, IReadOnlyList<string>? Keys = null, string? System = null, bool Repeat = false, string? Mouse = null)
+    string Type, IReadOnlyList<string>? Keys = null, string? System = null, bool Repeat = false, string? Mouse = null,
+    string? Macro = null)
 {
     public static readonly ButtonAction Nothing = new(ActionTypes.None);
 
@@ -26,6 +29,7 @@ public sealed record ButtonAction(
     public string? Problem(IPlatform platform) => Type switch
     {
         ActionTypes.None => null,
+        ActionTypes.Macro => string.IsNullOrEmpty(Macro) ? "A macro action needs a macro." : null,
         ActionTypes.Hold or ActionTypes.Press when Keys is not { Count: > 0 } => "A key action needs at least one key.",
         ActionTypes.Hold or ActionTypes.Press => Keys!.FirstOrDefault(k => !platform.Input.Supports(k)) is { } key
             ? $"This platform can't send the key '{key}'."
@@ -43,6 +47,7 @@ public static class ActionTypes
     public const string Press = "press";
     public const string System = "system";
     public const string Click = "click";
+    public const string Macro = "macro";
 }
 
 /// <summary>Names for <see cref="ButtonAction.Mouse"/>. Back and forward are the side buttons apps use for history.</summary>
@@ -135,7 +140,7 @@ public sealed record GestureActions(
 /// </summary>
 public sealed record GestureStep(
     string Type, IReadOnlyList<string>? Keys = null, string? System = null, bool Repeat = false, string? Mouse = null,
-    GestureStep? Up = null, GestureStep? Down = null, GestureStep? Left = null, GestureStep? Right = null)
+    string? Macro = null, GestureStep? Up = null, GestureStep? Down = null, GestureStep? Left = null, GestureStep? Right = null)
 {
     public static readonly GestureStep Nothing = new(ActionTypes.None);
 
@@ -143,7 +148,19 @@ public sealed record GestureStep(
         [GestureDirection.Up, GestureDirection.Down, GestureDirection.Left, GestureDirection.Right];
 
     [JsonIgnore]
-    public ButtonAction Action => new(Type, Keys, System, Repeat, Mouse);
+    public ButtonAction Action => new(Type, Keys, System, Repeat, Mouse, Macro);
+
+    /// <summary>Every step: this one, then the ones beyond it.</summary>
+    [JsonIgnore]
+    public IEnumerable<GestureStep> All => [this, .. Directions.SelectMany(d => this[d]?.All ?? [])];
+
+    /// <summary>This step and every step beyond it with their actions changed.</summary>
+    public GestureStep Map(Func<ButtonAction, ButtonAction> change)
+    {
+        var action = change(Action);
+        return new(action.Type, action.Keys, action.System, action.Repeat, action.Mouse, action.Macro,
+            Up?.Map(change), Down?.Map(change), Left?.Map(change), Right?.Map(change));
+    }
 
     [JsonIgnore]
     public bool IsLeaf => Up is null && Down is null && Left is null && Right is null;
@@ -159,7 +176,7 @@ public sealed record GestureStep(
     /// <summary>Whether the steps beyond this one turn off the way it was reached.</summary>
     public bool Branches(GestureDirection came) => Across(came).Any(d => this[d] is not null);
 
-    public static GestureStep Of(ButtonAction action) => new(action.Type, action.Keys, action.System, action.Repeat, action.Mouse);
+    public static GestureStep Of(ButtonAction action) => new(action.Type, action.Keys, action.System, action.Repeat, action.Mouse, action.Macro);
 
     public static GestureDirection Opposite(GestureDirection direction) => direction switch
     {

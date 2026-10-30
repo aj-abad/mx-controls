@@ -78,6 +78,8 @@ One JSON object per line over the pipe `mx-controls-agent`: a named pipe on Wind
 | `setStartAtLogin` | `{ enabled }` |
 | `setMultiClickMs` | `{ ms }`, 150 to 600; how long a click waits for another, on every button with a double click |
 | `setGesturePreset` | `{ preset }`; adds a gesture preset or replaces the one with its `id`. A built-in one keeps its name |
+| `setMacro` | `{ macro }`; adds a macro or replaces the one with its `id` |
+| `deleteMacro` | `{ id }`. Actions that run it do nothing until it's set again with the same `id` |
 | `deleteGesturePreset` | `{ id }`; a built-in one goes back to how it came. Buttons that follow a deleted one keep only their clicks, and get their moves back if it's set again with the same `id` |
 | `shutdown` | —; the agent hands the buttons back and exits |
 | `setDpi` | `{ dpi }` |
@@ -121,7 +123,19 @@ An action's `type` is one of these:
 - `press`, a macro in the app: taps them.
 - `system`: runs `taskView`, `showDesktop`, `zoomIn` or `zoomOut`.
 - `click`: holds the mouse button `mouse`, `back`, `forward` or `middle`, for as long as the button is held. Back and forward are the side buttons apps take as history.
+- `macro`: runs the saved macro whose ID is `macro`.
 - `none`: does nothing.
+
+A macro is named and kept in the settings, belonging to no profile, so every action that runs it changes when it does. The state lists them as `macros`, and where each runs as `macroUses`:
+
+```json
+{ "id": "signoff", "name": "Sign off", "steps": [
+  { "type": "keys", "keys": ["ControlLeft", "End"] }, { "type": "wait", "ms": 50 }, { "type": "text", "text": "Best,\nAJ" } ] }
+```
+
+A step is `keys`, tapped together; `text`, typed as written whatever the keyboard layout; `wait`, for `ms`; or `click`, a tap of the mouse button `mouse`. A macro waits at most a second in all. One without waits runs at once, like `press`; one that waits runs in the background, one macro at a time, and a repeat that comes while it's still running is skipped. `repeat: true` on the action repeats it while the button is held.
+
+Settings from before macros carried recorded keys as `press` actions. The agent turns each that isn't one of the app's built-in actions, such as Copy, into a macro named after its keys, in every profile, thumb wheel and gesture preset; the same keys share one.
 
 Keys are `KeyboardEvent.code` names, modifiers first. `repeat: true` repeats a `press` or `system` action while the button is held: after 300 ms, then every 200 ms.
 

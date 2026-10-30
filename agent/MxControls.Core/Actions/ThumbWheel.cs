@@ -92,11 +92,11 @@ public sealed class ThumbWheelEngine : IAsyncDisposable
 
     public event Action<Exception>? Failed;
 
-    public ThumbWheelEngine(MxDevice device, IPlatform platform)
+    public ThumbWheelEngine(MxDevice device, IPlatform platform, MacroLibrary? macros = null)
     {
         _device = device;
         _platform = platform;
-        _runner = new ActionRunner(platform, _gate);
+        _runner = new ActionRunner(platform, _gate, macros, error => Failed?.Invoke(error));
         device.Channel.EventReceived += OnEvent;
     }
 

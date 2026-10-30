@@ -26,6 +26,7 @@ public sealed partial class WindowsInput : IInputInjector
     private const int WheelDelta = 120;
     private const uint KeyEventExtendedKey = 0x0001;
     private const uint KeyEventKeyUp = 0x0002;
+    private const uint KeyEventUnicode = 0x0004;
     private const uint KeyEventScanCode = 0x0008;
     private const uint MapVkToVscEx = 4;
 
@@ -78,6 +79,16 @@ public sealed partial class WindowsInput : IInputInjector
     public void Down(string code) => Send(code, up: false);
 
     public void Up(string code) => Send(code, up: true);
+
+    // Each UTF-16 unit goes as its own Unicode key event, so surrogate pairs arrive as the two halves apps expect.
+    public void Type(string text)
+    {
+        foreach (char c in text)
+        {
+            Dispatch(new Input { Type = InputKeyboard, Keyboard = new KeyboardInput { ScanCode = c, Flags = KeyEventUnicode } });
+            Dispatch(new Input { Type = InputKeyboard, Keyboard = new KeyboardInput { ScanCode = c, Flags = KeyEventUnicode | KeyEventKeyUp } });
+        }
+    }
 
     public void Scroll(int notches) =>
         Dispatch(new Input { Type = InputMouse, Mouse = new MouseInput { MouseData = notches * WheelDelta, Flags = MouseEventWheel } });

@@ -1,4 +1,4 @@
-import type { AgentState, ButtonAction, ButtonBinding, GesturePreset, GestureStep } from "~/composables/useAgent";
+import type { AgentState, ButtonAction, ButtonBinding, GesturePreset, GestureStep, Macro, MacroUse } from "~/composables/useAgent";
 
 const step = (id: string, more: Partial<GestureStep> = {}): GestureStep => ({ ...(presetById(id)!.action as ButtonAction), ...more });
 const NONE: GestureStep = { type: "none" };
@@ -21,13 +21,44 @@ const BUILT_IN: GesturePreset[] = [
 const usesOf = (profile: string, bindings: ButtonBinding[]) =>
   bindings.filter((b) => b.mode === "gesture" && b.preset).map((b) => ({ preset: b.preset!, profile, button: b.button }));
 
+const MACROS: Macro[] = [
+  { id: "snapleft", name: "Snap left", steps: [{ type: "keys", keys: ["MetaLeft", "ArrowLeft"] }] },
+  { id: "shot", name: "Screenshot", steps: [{ type: "keys", keys: ["MetaLeft", "ShiftLeft", "KeyS"] }] },
+  {
+    id: "signoff",
+    name: "Sign off",
+    steps: [
+      { type: "keys", keys: ["ControlLeft", "End"] },
+      { type: "wait", ms: 50 },
+      { type: "text", text: "Best,\nAJ" },
+    ],
+  },
+];
+
+/** Where macros run, worked out again as the agent does, keeping the sample's other profiles as they were. */
+function withMacroUses(state: AgentState): AgentState {
+  const ran = (actions: (ButtonAction | null | undefined)[]) =>
+    actions.filter((a): a is ButtonAction => a?.type === "macro" && !!a.macro).map((a) => a.macro!);
+  const steps = (p: GesturePreset) => pathRows(p).map((row) => actionOf(row.step));
+  const kept = state.macroUses.filter((use) => use.profile && use.profile !== state.activeProfile);
+  const uses: MacroUse[] = [
+    ...kept,
+    ...state.bindings.flatMap((b) => ran([b.action, b.doubleClick, b.tripleClick]).map((macro) => ({ macro, profile: state.activeProfile, button: b.button }))),
+    ...ran([state.thumbWheel.left, state.thumbWheel.right]).map((macro) => ({ macro, profile: state.activeProfile, button: "thumbwheel" })),
+    ...state.gesturePresets.flatMap((p) => ran(steps(p)).map((macro) => ({ macro, preset: p.id }))),
+  ];
+  const seen = new Set<string>();
+  return { ...state, macroUses: uses.filter((u) => !seen.has(JSON.stringify(u)) && !!seen.add(JSON.stringify(u))) };
+}
+
 /** Sample state for previewing the app in a browser, outside Tauri. It never talks to a mouse. */
 export function previewState(): AgentState {
   const bindings: ButtonBinding[] = [
     { button: "middle", mode: "action", action: { type: "hold", keys: ["ShiftLeft"] } },
+    { button: "back", mode: "action", action: { type: "macro", macro: "snapleft" } },
     { button: "gesture", mode: "gesture", action: { type: "press", keys: ["ControlLeft", "KeyC"] }, preset: "tiling" },
   ];
-  return {
+  return withMacroUses({
     connected: true,
     optionsPlusRunning: true,
     error: null,
@@ -48,6 +79,8 @@ export function previewState(): AgentState {
       },
     ],
     presetUses: [...usesOf("default", bindings), { preset: "desktops", profile: "games", button: "gesture" }],
+    macros: MACROS,
+    macroUses: [{ macro: "shot", profile: "work", button: "smartshift" }],
     bindings,
     thumbWheel: { mode: "scroll", speed: 100, inverted: false },
     profiles: [
@@ -89,7 +122,7 @@ export function previewState(): AgentState {
         ],
       },
     },
-  };
+  });
 }
 
 /**
@@ -97,6 +130,13 @@ export function previewState(): AgentState {
  * shows a change before the agent has answered.
  */
 export function previewCall(state: AgentState, method: string, params: Record<string, unknown>): AgentState {
+  const next = apply(state, method, params);
+  return MACRO_USERS.has(method) ? withMacroUses(next) : next;
+}
+
+const MACRO_USERS = new Set(["setBindings", "setThumbWheel", "setGesturePreset", "deleteGesturePreset", "setMacro", "deleteMacro"]);
+
+function apply(state: AgentState, method: string, params: Record<string, unknown>): AgentState {
   const device = state.device!;
   switch (method) {
     case "setBindings": {
@@ -110,6 +150,13 @@ export function previewCall(state: AgentState, method: string, params: Record<st
       const gesturePresets = known ? state.gesturePresets.map((p) => (p.id === preset.id ? preset : p)) : [...state.gesturePresets, preset];
       return { ...state, gesturePresets };
     }
+    case "setMacro": {
+      const macro = params.macro as Macro;
+      const known = state.macros.some((m) => m.id === macro.id);
+      return { ...state, macros: known ? state.macros.map((m) => (m.id === macro.id ? macro : m)) : [...state.macros, macro] };
+    }
+    case "deleteMacro":
+      return { ...state, macros: state.macros.filter((m) => m.id !== params.id) };
     case "deleteGesturePreset": {
       const builtIn = state.builtInPresets.find((p) => p.id === params.id);
       const gesturePresets = builtIn

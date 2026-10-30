@@ -24,6 +24,35 @@ export interface AgentState {
   builtInPresets: GesturePreset[];
   /** Which buttons follow which preset, in every profile. */
   presetUses: { preset: string; profile: string; button: string }[];
+  macros: Macro[];
+  /** Where each macro runs: a button or the thumb wheel in a profile, or a step of a gesture preset. */
+  macroUses: MacroUse[];
+}
+
+/** A named sequence of input that `macro` actions run by ID, so editing it changes everything that runs it. */
+export interface Macro {
+  id: string;
+  name: string;
+  steps: MacroStep[];
+}
+
+/**
+ * `keys` taps its keys together, `text` types its text as written, `wait` pauses `ms`, and `click` clicks the
+ * mouse button `mouse`. A macro waits at most a second in all.
+ */
+export interface MacroStep {
+  type: "keys" | "text" | "wait" | "click";
+  keys?: string[] | null;
+  text?: string | null;
+  ms?: number;
+  mouse?: string | null;
+}
+
+export interface MacroUse {
+  macro: string;
+  profile?: string | null;
+  button?: string | null;
+  preset?: string | null;
 }
 
 export interface DeviceState {
@@ -86,13 +115,15 @@ export interface ButtonState {
 
 /** Mirrors `agent/MxControls.Core/Actions/ButtonAction.cs`. */
 export interface ButtonAction {
-  type: "none" | "hold" | "press" | "system" | "click";
+  type: "none" | "hold" | "press" | "system" | "click" | "macro";
   /** `KeyboardEvent.code` names in press order, modifiers first. */
   keys?: string[] | null;
   system?: string | null;
   repeat?: boolean;
   /** For `click`: "back", "forward" or "middle", held as long as the button is. */
   mouse?: string | null;
+  /** For `macro`: the macro's ID. */
+  macro?: string | null;
 }
 
 export type Direction = "up" | "down" | "left" | "right";
@@ -216,11 +247,16 @@ const OPTIMISTIC = new Set([
   "setMultiClickMs",
   "setHostName",
   "setGesturePreset",
+  "setMacro",
 ]);
 
-/** Each preset is its own setting, so changes to two presets in a row don't stand in for each other. */
+/** Each preset and macro is its own setting, so changes to two in a row don't stand in for each other. */
 const settingKey = (method: string, params: Record<string, unknown>) =>
-  method === "setGesturePreset" ? `${method}:${(params.preset as { id: string }).id}` : method;
+  method === "setGesturePreset"
+    ? `${method}:${(params.preset as { id: string }).id}`
+    : method === "setMacro"
+      ? `${method}:${(params.macro as { id: string }).id}`
+      : method;
 const DEBOUNCE_MS = 150;
 
 interface Overlay {

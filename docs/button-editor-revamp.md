@@ -72,3 +72,21 @@ Two of the custom actions are renamed. The agent's `type` values stay as they ar
 - **A key that can't stay down becomes a macro.** A double click or a move makes the click wait or run on release. The row then changes to Macro and says so: "The key became a macro that taps Left Shift once."
 - **Summaries.** A key reads "Left Shift key", and a macro shows its keys, "Ctrl + C", as now.
 - **Renaming `type` waits for the macro editor.** When a macro grows into steps, `press` becomes `macro` with a list of steps, and the settings are migrated in the same change. Renaming it now would mean migrating twice.
+
+## Gestures and Macros pages
+
+Gesture presets and macros belong to no profile, so they get top-level pages beside Buttons, chosen from a switch in the header: **Buttons · Gestures · Macros**. The profile bar only shows on Buttons; the other two say they're shared by every profile. A button still picks a preset or a macro in its inspector, and "Edit preset ›" or "Edit macro ›" goes to its page.
+
+- **Gestures page.** Today's presets page, laid out for the full window: the list on the left, and on the right a large compass of the whole gesture beside its path rows. The width that the inspector never had makes the map from direction B practical here.
+- **Macros page.** The same list and editor: a timeline of the macro against its one second, one row a step, then the steps to edit, reorder or remove, and a recorder that turns the keys pressed into steps, with their pauses if wanted.
+
+### Macros become saved and shared
+
+A macro is named and kept in the agent's settings, like a gesture preset, and every action that uses it follows it.
+
+- `Macro(Id, Name, Steps)` in `AgentSettings.Macros`, with `setMacro` and `deleteMacro`, and `macros` and `macroUses` in the state. A step is keys, text, a wait or a mouse click, and a macro waits at most one second in all.
+- An action of type `macro` names one: `{ "type": "macro", "macro": "snap", "repeat": true }`. Repeating stays on the action, since it belongs to the button. It works in buttons, gesture steps, double and triple clicks and the thumb wheel.
+- The engines look macros up when they run them, so editing one takes effect at once. A deleted macro does nothing until undo puts it back with the same ID.
+- Built-in actions such as Copy stay as they are. They're listed first in the picker, then saved macros, then "New macro…", which records keys and saves them as a macro named after them ("Ctrl + Shift + V"), ready to rename.
+- A key (`hold`) stays a plain action: it's one key held with the button, not something to share.
+- Migration: each `press` action that isn't a built-in one becomes a macro, and the same keys share one. This is the `press` → `macro` rename the Key and Macro section put off until macros grew.

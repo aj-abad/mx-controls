@@ -1,5 +1,7 @@
 <template>
-  <FitStage v-if="device" :width="STAGE.width" :height="STAGE.height">
+  <GesturePresets v-if="page === 'gestures'" />
+  <MacrosPage v-else-if="page === 'macros'" />
+  <FitStage v-else-if="device" :width="STAGE.width" :height="STAGE.height">
     <ControlMap
       :items="items"
       :selected="selectedId"
@@ -14,7 +16,7 @@
          photo steps back to make room; going back reverses it. Both overlap while they cross, so neither waits. -->
     <AnimatePresence :initial="false">
       <motion.div
-        v-if="!selected && !presetsPage"
+        v-if="!selected"
         key="list"
         class="absolute top-0 rounded-2xl bg-panel"
         :style="{ left: `${LIST.x}px`, width: `${LIST.width}px`, height: `${layout.height}px` }"
@@ -93,23 +95,6 @@
         </template>
       </motion.div>
 
-      <!-- Presets belong to no control, so their page takes the inspector's place and goes back to where it came from. -->
-      <motion.section
-        v-else-if="presetsPage"
-        key="presets"
-        class="absolute top-0 bottom-0 flex flex-col rounded-2xl bg-panel"
-        :style="{ left: `${INSPECTOR.x}px`, width: `${INSPECTOR.width}px` }"
-        aria-label="Gesture presets"
-        :initial="{ opacity: 0, x: 8 }"
-        :animate="{ opacity: 1, x: 0 }"
-        :exit="{ opacity: 0, x: 8, transition: EXIT }"
-        :transition="BASE">
-        <GesturePresets
-          v-model:open-id="presetsPage.openId"
-          :back-label="selected?.label ?? 'All controls'"
-          @close="presetsPage = null" />
-      </motion.section>
-
       <motion.section
         v-else-if="selected"
         :key="selected.control.id"
@@ -151,7 +136,7 @@
               :button="selected.button"
               :binding="bindingFor(selected.button.id)"
               :apply="apply"
-              @open-presets="(id) => (presetsPage = { openId: id })" />
+              @open-presets="(id) => goTo('gestures', id)" />
             <HapticSettings v-if="selected.control.id === 'haptic'" :device="device" />
           </template>
         </div>
@@ -212,10 +197,7 @@ const bindingFor = (button: string) => bindings.value.find((b) => b.button === b
 
 const selectedId = ref<ControlId | null>(null);
 const hoveredId = ref<ControlId | null>(null);
-/** The Gesture presets page, open over whichever control opened it, on one preset or its list. */
-const presetsPage = ref<{ openId: string | null } | null>(null);
-// Picking another control on the photo goes to it, leaving the presets.
-watch(selectedId, () => (presetsPage.value = null));
+const { page, goTo } = usePage();
 
 const LABELS: Partial<Record<ControlId, string>> = BUTTON_LABELS;
 const presets = useGesturePresets();
@@ -302,7 +284,7 @@ const frame = computed(() => mixFrames(OVERVIEW, FOCUS, focus.value));
 const reduceMotion = useReducedMotion();
 let focusing: ReturnType<typeof animate> | undefined;
 watch(
-  () => !!selected.value || !!presetsPage.value,
+  () => !!selected.value,
   (open) => {
     focusing?.stop();
     focusing = animate(focus.value, open ? 1 : 0, {
@@ -379,8 +361,8 @@ const isMac = navigator.userAgent.includes("Mac");
 // Ctrl+Z puts back the last change, except in a field, where it undoes typing.
 function onKey(event: KeyboardEvent) {
   if (event.defaultPrevented) return;
-  if (event.key === "Escape" && (selectedId.value || presetsPage.value)) {
-    if (!document.querySelector("[data-dismissable-layer]")) goBack();
+  if (event.key === "Escape" && selectedId.value && page.value === "buttons") {
+    if (!document.querySelector("[data-dismissable-layer]")) selectedId.value = null;
     return;
   }
   const command = isMac ? event.metaKey : event.ctrlKey;
@@ -407,16 +389,8 @@ function onMouseButton(event: MouseEvent) {
   // Otherwise the webview takes them as history and leaves the page.
   event.preventDefault();
   if (event.type !== "mouseup") return;
-  if (event.button === MOUSE_BACK) goBack();
+  if (event.button === MOUSE_BACK) selectedId.value = null;
   else if (!selectedId.value && closed) selectedId.value = closed;
-}
-
-/** One level back: a preset to the presets, the presets to where they were opened from, a control to the list. */
-function goBack() {
-  const page = presetsPage.value;
-  if (page?.openId) page.openId = null;
-  else if (page) presetsPage.value = null;
-  else selectedId.value = null;
 }
 onMounted(() => {
   window.addEventListener("mousedown", onMouseButton);

@@ -37,6 +37,8 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
     private volatile bool _lost;
     private DateTime _batteryReadAt;
     private KeyRecorder? _recorder;
+    // What `macro` actions run; both engines read it, and it changes with the settings.
+    private readonly MacroLibrary _macros = new();
 
     /// <summary>An event for every client: its name and payload.</summary>
     public event Action<string, object>? Published;
@@ -51,7 +53,8 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
             _settings.AllPresets, PresetLibrary.BuiltIn,
             _settings.AllProfiles.SelectMany(p => p.AllBindings
                 .Where(b => b is { IsGesture: true, Preset: not null })
-                .Select(b => new PresetUse(b.Preset!, p.Id, b.Button))).ToArray());
+                .Select(b => new PresetUse(b.Preset!, p.Id, b.Button))).ToArray(),
+            _settings.Macros ?? [], MacroUses(_settings));
 
     public async Task RunAsync(CancellationToken stop)
     {
@@ -170,7 +173,8 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
     private async Task StartEnginesAsync(MxDevice mx)
     {
         var profile = _settings.Active;
-        _engine = await ButtonEngine.StartAsync(mx, platform, UsableBindings(_settings));
+        _macros.Set(_settings.Macros ?? []);
+        _engine = await ButtonEngine.StartAsync(mx, platform, UsableBindings(_settings), _macros);
         _engine.Failed += error => Log.Write($"Running an action failed: {error.Message}");
         _engine.GestureFired += (cid, path, ran) => Published?.Invoke("gesture",
             new GestureEvent(ButtonId(cid), path.Count > 0 ? path[^1] : null, path, ran ? "fire" : "step"));
@@ -179,7 +183,7 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
 
         if (!mx.Has(FeatureIds.ThumbWheel))
             return;
-        _thumb = new ThumbWheelEngine(mx, platform);
+        _thumb = new ThumbWheelEngine(mx, platform, _macros);
         _thumb.Failed += error => Log.Write($"Running a thumb wheel action failed: {error.Message}");
         // The buttons are what matter most; a wheel that won't take its settings keeps scrolling as it did.
         try
@@ -404,6 +408,7 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
                 var preset = args.GetProperty("preset").Deserialize(AgentJson.Default.GesturePreset)
                     ?? throw new ArgumentException("Missing the gesture preset.");
                 PresetArg(preset);
+                CheckMacros([.. new[] { preset.Up, preset.Down, preset.Left, preset.Right }.SelectMany(s => s.All).Select(s => s.Action)]);
                 await _queue.RunAsync(() => ChangeSettingsAsync(s => s with
                 {
                     GesturePresets = s.GesturePresets?.Any(p => p.Id == preset.Id) == true
@@ -419,6 +424,27 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
                 {
                     GesturePresets = (s.GesturePresets ?? []).Where(p => p.Id != gone).ToArray(),
                 }));
+                break;
+            case "setMacro":
+                var macro = args.GetProperty("macro").Deserialize(AgentJson.Default.Macro)
+                    ?? throw new ArgumentException("Missing the macro.");
+                if (!IsId(macro.Id))
+                    throw new ArgumentException($"'{macro.Id}' isn't a macro ID.");
+                if (macro.Problem(platform) is { } macroProblem)
+                    throw new ArgumentException(macroProblem);
+                await _queue.RunAsync(() => ChangeSettingsAsync(s => s with
+                {
+                    Macros = s.Macros?.Any(m => m.Id == macro.Id) == true
+                        ? s.Macros.Select(m => m.Id == macro.Id ? macro : m).ToArray()
+                        : [.. s.Macros ?? [], macro],
+                }, apply: false));
+                break;
+            case "deleteMacro":
+                // Actions keep naming a deleted macro and do nothing, so putting it back with the same ID, as undo
+                // does, brings them back too.
+                var unwanted = args.GetProperty("id").GetString() ?? "";
+                await _queue.RunAsync(() => ChangeSettingsAsync(
+                    s => s with { Macros = (s.Macros ?? []).Where(m => m.Id != unwanted).ToArray() }, apply: false));
                 break;
             default:
                 // A setting: its arguments are checked now, and its work waits its turn, giving way to a newer change.
@@ -447,6 +473,7 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
                         throw new ArgumentException($"{binding.Button}: {problem}");
                     if (binding is { IsGesture: true, Gesture: null, Preset: { } preset } && _settings.FindPreset(preset) is null)
                         throw new ArgumentException($"{binding.Button}: that gesture preset was deleted.");
+                    CheckMacros([binding.Action, binding.DoubleClick, binding.TripleClick, .. ActionsOf(binding.Gesture)]);
                 }
                 var distinct = bindings.DistinctBy(b => b.Button.ToLowerInvariant()).ToArray();
                 return () => ChangeSettingsAsync(s => s.WithActive(p => p with { Bindings = distinct }));
@@ -455,6 +482,7 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
                     ?? throw new ArgumentException("Missing thumb wheel settings.");
                 if (wheel.Problem(platform) is { } wheelProblem)
                     throw new ArgumentException(wheelProblem);
+                CheckMacros([wheel.Left, wheel.Right]);
                 return () => ChangeSettingsAsync(s => s.WithActive(p => p with { ThumbWheel = wheel.IsDefault ? null : wheel }));
             case "switchProfile":
                 var target = ProfileArg(args);
@@ -543,9 +571,45 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
     private Profile FindProfile(string id) =>
         _settings.AllProfiles.FirstOrDefault(p => p.Id == id) ?? throw new ArgumentException($"There's no profile '{id}'.");
 
+    private static bool IsId(string id) => id.Length is > 0 and <= 40 && id.All(c => c is '-' or '_' || char.IsAsciiLetterOrDigit(c));
+
+    /// <summary>Refuses actions running a macro that isn't there, which would otherwise do nothing without saying so.</summary>
+    private void CheckMacros(IEnumerable<ButtonAction?> actions)
+    {
+        foreach (var action in actions)
+        {
+            if (action is { Type: ActionTypes.Macro, Macro: { } id } && _settings.Macros?.Any(m => m.Id == id) != true)
+                throw new ArgumentException("That macro was deleted.");
+        }
+    }
+
+    private static IEnumerable<ButtonAction> ActionsOf(GestureActions? gesture) => gesture is null
+        ? []
+        : [gesture.Click, .. new[] { gesture.Up, gesture.Down, gesture.Left, gesture.Right }.SelectMany(s => s.All).Select(s => s.Action)];
+
+    private static IReadOnlyList<MacroUse> MacroUses(AgentSettings settings)
+    {
+        static IEnumerable<string> Run(IEnumerable<ButtonAction?> actions) =>
+            actions.OfType<ButtonAction>().Where(a => a.Type == ActionTypes.Macro && a.Macro is not null).Select(a => a.Macro!);
+        var uses = new List<MacroUse>();
+        foreach (var profile in settings.AllProfiles)
+        {
+            foreach (var b in profile.AllBindings)
+                uses.AddRange(Run([b.Action, b.DoubleClick, b.TripleClick, .. ActionsOf(b.Gesture)]).Select(id => new MacroUse(id, profile.Id, b.Button)));
+            if (profile.ThumbWheel is { } wheel)
+                uses.AddRange(Run([wheel.Left, wheel.Right]).Select(id => new MacroUse(id, profile.Id, "thumbwheel")));
+        }
+        foreach (var preset in settings.AllPresets)
+        {
+            var steps = new[] { preset.Up, preset.Down, preset.Left, preset.Right }.SelectMany(s => s.All).Select(s => s.Action);
+            uses.AddRange(Run(steps).Select(id => new MacroUse(id, Preset: preset.Id)));
+        }
+        return uses.Distinct().ToArray();
+    }
+
     private void PresetArg(GesturePreset preset)
     {
-        if (preset.Id.Length is 0 or > 40 || !preset.Id.All(c => c is '-' or '_' || char.IsAsciiLetterOrDigit(c)))
+        if (!IsId(preset.Id))
             throw new ArgumentException($"'{preset.Id}' isn't a preset ID.");
         if (preset.Problem(platform) is { } problem)
             throw new ArgumentException(problem);
@@ -606,6 +670,7 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
             }
         }
         _settings = next;
+        _macros.Set(next.Macros ?? []);
         store.Save(next);
     }
 

@@ -18,6 +18,9 @@ public interface IInputInjector
     void Down(string code);
     void Up(string code);
 
+    /// <summary>Types text as written, whatever the keyboard layout, without pressing any key the text doesn't need.</summary>
+    void Type(string text);
+
     /// <summary>Turns the vertical wheel by whole notches; positive scrolls up.</summary>
     void Scroll(int notches);
 

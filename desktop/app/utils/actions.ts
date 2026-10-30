@@ -109,6 +109,8 @@ export function describeAction(action: ButtonAction) {
       return (SYSTEM_ACTIONS[action.system ?? ""] ?? action.system ?? "System action") + repeat;
     case "click":
       return MOUSE_BUTTONS[action.mouse ?? ""] ?? "Mouse button";
+    case "macro":
+      return (useAgent().state.value?.macros.find((m) => m.id === action.macro)?.name ?? "Deleted macro") + repeat;
     default:
       return "Nothing";
   }
