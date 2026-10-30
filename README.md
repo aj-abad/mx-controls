@@ -71,8 +71,9 @@ One JSON object per line over the pipe `mx-controls-agent`: a named pipe on Wind
 | `setBindings` | `{ bindings: [binding] }` for the active profile; see below |
 | `setThumbWheel` | `{ thumbWheel }` for the active profile; see below |
 | `switchProfile` | `{ id }` |
-| `createProfile` | `{ name, copyFrom? }`; the new profile becomes active, a copy of `copyFrom` or with every control at its default |
+| `createProfile` | `{ name, copyFrom?, icon? }`; the new profile becomes active, a copy of `copyFrom` or with every control at its default |
 | `renameProfile` | `{ id, name }` |
+| `setProfileIcon` | `{ id, icon }`; a Phosphor icon name in kebab case, or null for the profile's initial |
 | `deleteProfile` | `{ id }`; the last one stays |
 | `setStartAtLogin` | `{ enabled }` |
 | `shutdown` | —; the agent hands the buttons back and exits |
@@ -113,11 +114,13 @@ An action's `type` is one of these:
 
 Keys are `KeyboardEvent.code` names, modifiers first. `repeat: true` repeats a `press` or `system` action while the button is held: after 300 ms, then every 200 ms.
 
-A gesture button is diverted with raw XY, so the pointer stays still while it's held. Moving 2 mm in one direction, measured at the mouse's current DPI, fires that direction once, with a haptic tap, the moment the movement gets there; a quick flick fires as readily as a slow drag. A movement more than about 31 degrees off an axis waits until it straightens out. Letting go before 2 mm fires `click`. The first raw XY report of each press carries stale movement from before it and is ignored.
+A gesture button is diverted with raw XY, so the pointer stays still while it's held. Moving 2 mm in one direction, measured at the mouse's current DPI, fires that direction with a haptic tap the moment the movement gets there; a quick flick fires as readily as a slow drag. A movement more than about 31 degrees off an axis waits until it straightens out. Letting go before 2 mm fires `click`. The first raw XY report of each press carries stale movement from before it and is ignored.
+
+While the button stays down, every direction can fire again, measured from where the movement turned: moving back 2 mm fires the opposite direction, and turning fires the new one. A direction with `repeat: true` fires again for every 4 mm it keeps going, so volume up keeps raising the volume and moving back lowers it at once; it taps its action each time instead of repeating on a timer. A direction without it fires once per stroke, and again after a 150 ms pause.
 
 The thumb wheel's settings are `{ mode, speed, inverted, left, right }`. `mode` is `scroll`, which scrolls sideways, or `actions`, which runs `left` or `right` once for each step, as a tap. `speed` is a percentage from 25 to 300. At its default, `scroll` at 100% and not inverted, the agent leaves the wheel alone, and plain inverted scrolling is a setting on the mouse. Anything else diverts the wheel, and the agent sends the scrolling itself through `MOUSEEVENTF_HWHEEL`. At 100%, one count of the wheel's native resolution scrolls one notch or runs one step. Which way the diverted wheel counts as right hasn't been checked on hardware yet; if it comes out backwards, flip the sign in `ThumbWheelMapper`.
 
-A profile holds bindings and thumb wheel settings. DPI, SmartShift and haptics are stored on the mouse and stay the same across profiles. The state carries `profiles` (`{ id, name }`), `activeProfile`, and the active profile's `bindings` and `thumbWheel`.
+A profile holds bindings and thumb wheel settings. DPI, SmartShift and haptics are stored on the mouse and stay the same across profiles. The state carries `profiles` (`{ id, name, icon }`), `activeProfile`, and the active profile's `bindings` and `thumbWheel`.
 
 Easy-Switch comes from CHANGE_HOST and HOSTS_INFO, read with Solaar's layouts. `device.hosts` lists each channel, whether a computer is paired on it, and the name that computer gave the mouse. Switching sends the request without waiting for an answer, because the mouse leaves at once. The agent notices it has gone and connects again when it comes back.
 
@@ -140,7 +143,7 @@ agent/MxControls.Cli/bin/Release/net10.0/mx info
 | --- | --- |
 | `mx info` | Feature table, firmware, battery, buttons, settings and Easy-Switch channels. Read-only. |
 | `mx listen [seconds] [--all]` | Logs presses of buttons another app has diverted. `--all` diverts every button for the session to identify it, then restores them. |
-| `mx gestures [seconds] [--trace <file>]` | Diverts the gesture button and logs each swipe's reports, travel and what it would fire, without running anything. `--trace` saves them as JSON lines for tuning. |
+| `mx gestures [seconds] [--repeat] [--trace <file>]` | Diverts the gesture button and logs each swipe's reports, travel and what it would fire, without running anything. `--repeat` acts as if every direction repeats; `--trace` saves the swipes as JSON lines for tuning. |
 | `mx haptic <waveform>` | Plays a haptic waveform. |
 | `mx hold <button>=<key> ... [--seconds N]` | Holds keyboard keys while mouse buttons are held, then restores the buttons. |
 

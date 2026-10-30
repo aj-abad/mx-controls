@@ -15,7 +15,7 @@
     <UiCheckbox
       v-if="allowRepeat && (modelValue.type === 'press' || modelValue.type === 'system')"
       :model-value="!!modelValue.repeat"
-      label="Repeat while held"
+      :label="repeatLabel"
       @update:model-value="(repeat) => update({ repeat })" />
   </div>
 </template>
@@ -28,6 +28,7 @@ const {
   label,
   allowHold = true,
   allowRepeat = true,
+  repeatLabel = "Repeat while held",
 } = defineProps<{
   modelValue: ButtonAction;
   label: string;
@@ -35,6 +36,8 @@ const {
   allowHold?: boolean;
   /** Repeating needs a press to repeat through. */
   allowRepeat?: boolean;
+  /** A gesture direction repeats with movement rather than with time. */
+  repeatLabel?: string;
 }>();
 const emit = defineEmits<{ "update:modelValue": [action: ButtonAction] }>();
 

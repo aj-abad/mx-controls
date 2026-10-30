@@ -37,6 +37,8 @@ export interface DeviceState {
 export interface ProfileSummary {
   id: string;
   name: string;
+  /** A key of `PROFILE_ICONS`, or null for the profile's initial. */
+  icon: string | null;
 }
 
 export interface HostsInfo {
@@ -156,6 +158,7 @@ const OPTIMISTIC = new Set([
   "setThumbWheel",
   "setBindings",
   "switchProfile",
+  "setProfileIcon",
   "setStartAtLogin",
   "setHostName",
 ]);

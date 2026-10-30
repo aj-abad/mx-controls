@@ -4,7 +4,7 @@
 
     <template v-if="draft.mode === 'actions'">
       <div class="flex flex-wrap items-center gap-1.5">
-        <span class="mr-0.5 text-xs text-ink-3">Start from</span>
+        <span class="mr-0.5 text-xs text-ink-3">Presets</span>
         <button
           v-for="preset in STEP_PRESETS"
           :key="preset.id"
@@ -27,12 +27,13 @@
 
     <UiSlider
       v-model="draft.speed"
-      :label="draft.mode === 'scroll' ? 'Scroll speed' : 'Steps per turn'"
+      :label="draft.mode === 'scroll' ? 'Scroll speed' : 'Action rate'"
       :description="
         draft.mode === 'scroll'
-          ? '100% is the wheel\'s own speed. Any other speed is run by MX Controls while it\'s running.'
-          : 'At 100% an action runs once for each notch the wheel would scroll.'
+          ? 'Speeds other than 100% only apply while MX Controls runs in the background.'
+          : 'At 100%, an action runs once per notch.'
       "
+      :default-value="100"
       :min="25"
       :max="300"
       :step="5"

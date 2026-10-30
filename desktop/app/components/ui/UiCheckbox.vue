@@ -4,7 +4,7 @@
       v-model="checked"
       class="flex size-[18px] items-center justify-center rounded-[5px] bg-field ring-1 ring-fill-strong ring-inset data-[state=checked]:bg-ink data-[state=checked]:ring-ink">
       <CheckboxIndicator>
-        <IconCheck class="size-3.5 text-white" />
+        <PhCheck class="size-3.5 text-white" />
       </CheckboxIndicator>
     </CheckboxRoot>
     {{ label }}
@@ -12,6 +12,7 @@
 </template>
 
 <script setup lang="ts">
+import { PhCheck } from "@phosphor-icons/vue";
 import { CheckboxIndicator, CheckboxRoot } from "reka-ui";
 
 defineProps<{ label: string }>();

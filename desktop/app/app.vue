@@ -14,5 +14,17 @@
 import { MotionConfig } from "motion-v";
 import { TooltipProvider } from "reka-ui";
 
+// Phosphor's bold stroke at 16px matches the 1.5–1.6px strokes the UI was drawn with.
+provide("weight", "bold");
+
 useWindowDrag();
+
+// The webview's own menu (Reload, Inspect) would read as a web page's. Fields keep theirs for cut, copy and
+// paste, and a dev build keeps it everywhere for the inspector.
+function blockNativeMenu(event: MouseEvent) {
+  const target = event.target as HTMLElement | null;
+  if (!import.meta.dev && !target?.closest("input, textarea, [contenteditable]")) event.preventDefault();
+}
+onMounted(() => window.addEventListener("contextmenu", blockNativeMenu));
+onBeforeUnmount(() => window.removeEventListener("contextmenu", blockNativeMenu));
 </script>

@@ -4,7 +4,7 @@
       :aria-label="label"
       class="flex h-10 w-full items-center justify-between gap-2 rounded-lg bg-field px-3 text-sm ring-1 ring-line ring-inset hover:ring-fill-strong data-[state=open]:ring-ink">
       <SelectValue :placeholder="placeholder" />
-      <IconChevronDown class="size-4 text-ink-3" />
+      <PhCaretDown class="size-4 text-ink-3" />
     </SelectTrigger>
     <SelectPortal>
       <SelectContent
@@ -19,7 +19,7 @@
             class="relative flex h-9 cursor-default items-center rounded-lg pr-8 pl-3 text-sm outline-none data-highlighted:bg-fill">
             <SelectItemText>{{ option.label }}</SelectItemText>
             <SelectItemIndicator class="absolute right-2.5">
-              <IconCheck class="size-4" />
+              <PhCheck class="size-4" />
             </SelectItemIndicator>
           </SelectItem>
         </SelectViewport>
@@ -29,6 +29,7 @@
 </template>
 
 <script setup lang="ts">
+import { PhCaretDown, PhCheck } from "@phosphor-icons/vue";
 import {
   SelectContent,
   SelectItem,

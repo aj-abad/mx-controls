@@ -4,22 +4,30 @@
       <span :id="labelId" class="font-medium">{{ label }}</span>
       <span class="text-sm tabular-nums text-ink-2">{{ format ? format(value) : value }}</span>
     </div>
-    <SliderRoot
-      :model-value="[value]"
-      :min="min"
-      :max="max"
-      :step="step"
-      :aria-labelledby="labelId"
-      class="relative flex h-5 w-full touch-none items-center"
-      @update:model-value="(next) => next && (value = next[0]!)"
-      @value-commit="(next) => emit('commit', next[0]!)">
-      <SliderTrack class="relative h-1 grow rounded-full bg-fill-strong">
-        <SliderRange class="absolute h-full rounded-full bg-ink" />
-      </SliderTrack>
-      <SliderThumb
-        :aria-valuetext="format ? format(value) : undefined"
-        class="block size-[18px] rounded-full bg-white shadow-[0_1px_4px_rgb(0_0_0/0.25)] ring-1 ring-black/10" />
-    </SliderRoot>
+    <!-- The default is marked on the track, so the copy around the slider doesn't have to state it. -->
+    <div class="relative" :class="defaultValue !== undefined && 'pb-4'">
+      <SliderRoot
+        :model-value="[value]"
+        :min="min"
+        :max="max"
+        :step="step"
+        :aria-labelledby="labelId"
+        class="relative flex h-5 w-full touch-none items-center"
+        @update:model-value="(next) => next && (value = next[0]!)"
+        @value-commit="(next) => emit('commit', next[0]!)">
+        <SliderTrack class="relative h-1 grow rounded-full bg-fill-strong">
+          <SliderRange class="absolute h-full rounded-full bg-ink" />
+        </SliderTrack>
+        <span
+          v-if="mark"
+          aria-hidden="true"
+          class="pointer-events-none absolute top-1/2 h-2.5 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-ink-3"
+          :style="{ left: mark.left }" />
+        <SliderThumb
+          :aria-valuetext="valueText"
+          class="block size-4.5 rounded-full bg-white shadow-[0_1px_4px_rgb(0_0_0/0.25)] ring-1 ring-black/10" />
+      </SliderRoot>
+    </div>
     <p v-if="description" class="text-sm text-ink-3">{{ description }}</p>
   </div>
 </template>
@@ -27,12 +35,20 @@
 <script setup lang="ts">
 import { SliderRange, SliderRoot, SliderThumb, SliderTrack } from "reka-ui";
 
-const { step = 1 } = defineProps<{
+const {
+  min,
+  max,
+  step = 1,
+  defaultValue,
+  format,
+} = defineProps<{
   label: string;
   description?: string;
   min: number;
   max: number;
   step?: number;
+  /** Marked on the track, and read out as "default" when the slider sits on it. */
+  defaultValue?: number;
   format?: (value: number) => string;
 }>();
 const value = defineModel<number>({ required: true });
@@ -40,4 +56,17 @@ const value = defineModel<number>({ required: true });
 const emit = defineEmits<{ commit: [value: number] }>();
 
 const labelId = useId();
+
+const mark = computed(() => {
+  if (defaultValue === undefined) return null;
+  const share = (defaultValue - min) / (max - min);
+  // Near an end the label lines up with it rather than hanging off the slider.
+  const shift = share < 0.08 ? "0" : share > 0.92 ? "-100%" : "-50%";
+  return { left: `${share * 100}%`, shift };
+});
+
+const valueText = computed(() => {
+  const text = format ? format(value.value) : String(value.value);
+  return value.value === defaultValue ? `${text}, default` : text;
+});
 </script>

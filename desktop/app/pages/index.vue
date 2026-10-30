@@ -6,6 +6,7 @@
       :active="hoveredId ?? selectedId"
       :frame="frame"
       :pulse="pulse"
+      :menu="(id) => menuFor(items.find((item) => item.control.id === id)!)"
       @select="(id) => (selectedId = id)"
       @hover="(id) => (hoveredId = id)" />
 
@@ -33,7 +34,12 @@
               v-for="(item, i) in group.items"
               :key="item.control.id"
               class="absolute"
-              :style="{ top: `${item.top}px`, height: `${LIST.row}px`, left: `${LIST.padding}px`, right: `${LIST.padding}px` }">
+              :style="{
+                top: `${item.top}px`,
+                height: `${LIST.row}px`,
+                left: `${LIST.padding}px`,
+                right: `${LIST.padding}px`,
+              }">
               <motion.span
                 v-if="pulse?.id === item.control.id"
                 :key="pulse.n"
@@ -45,28 +51,33 @@
               <span
                 v-if="!item.first"
                 class="absolute inset-x-3 top-0 h-px bg-line"
-                :class="(hoveredId === item.control.id || hoveredId === group.items[i - 1]?.control.id) && 'opacity-0'" />
-              <button
-                type="button"
-                class="group relative flex size-full cursor-pointer items-center gap-2 rounded-xl pr-2.5 pl-3 text-left active:bg-fill-strong/60"
-                :class="hoveredId === item.control.id && 'bg-fill'"
-                @click="selectedId = item.control.id"
-                @pointerenter="hoveredId = item.control.id"
-                @pointerleave="hoveredId = null">
-                <span class="shrink-0 text-sm font-medium">{{ item.label }}</span>
-                <span v-if="item.customized" class="size-1.5 shrink-0 rounded-full bg-accent" />
-                <span v-if="item.customized" class="sr-only">, changed</span>
-                <span
-                  class="ml-auto flex min-w-0 items-center gap-1.5 text-[13px]"
-                  :class="item.customized ? 'text-ink-2' : 'text-ink-3'">
-                  <IconWarning v-if="item.shared" class="size-3.5 shrink-0 text-warn" />
-                  <span v-if="item.shared" class="sr-only">Also used by another app:</span>
-                  <span class="truncate">{{ item.summary }}</span>
-                </span>
-                <IconChevronRight
-                  class="size-4 shrink-0 text-ink-3 transition-transform"
-                  :class="hoveredId === item.control.id && 'translate-x-0.5 text-ink'" />
-              </button>
+                :class="
+                  (hoveredId === item.control.id || hoveredId === group.items[i - 1]?.control.id) &&
+                  'opacity-0'
+                " />
+              <UiContextMenu :items="menuFor(item)">
+                <button
+                  type="button"
+                  class="group relative flex size-full cursor-pointer items-center gap-2 rounded-xl pr-2.5 pl-3 text-left active:bg-fill-strong/60"
+                  :class="hoveredId === item.control.id && 'bg-fill'"
+                  @click="selectedId = item.control.id"
+                  @pointerenter="hoveredId = item.control.id"
+                  @pointerleave="hoveredId = null">
+                  <span class="shrink-0 text-sm font-medium">{{ item.label }}</span>
+                  <span v-if="item.customized" class="size-1.5 shrink-0 rounded-full bg-accent" />
+                  <span v-if="item.customized" class="sr-only">, changed</span>
+                  <span
+                    class="ml-auto flex min-w-0 items-center gap-1.5 text-[13px]"
+                    :class="item.customized ? 'text-ink-2' : 'text-ink-3'">
+                    <PhWarning v-if="item.shared" class="size-3.5 shrink-0 text-warn" />
+                    <span v-if="item.shared" class="sr-only">Also used by another app:</span>
+                    <span class="truncate">{{ item.summary }}</span>
+                  </span>
+                  <PhCaretRight
+                    class="size-4 shrink-0 text-ink-3 transition-transform"
+                    :class="hoveredId === item.control.id && 'translate-x-0.5 text-ink'" />
+                </button>
+              </UiContextMenu>
             </li>
           </ul>
         </template>
@@ -84,39 +95,53 @@
         :transition="BASE">
         <!-- Every control's settings share this frame: what it is, a warning if it's shared, its settings,
              and a way back to the default. -->
-        <header class="px-6 pt-4 pb-5">
-          <button
-            type="button"
-            class="-ml-1 mb-2 inline-flex items-center gap-1.5 rounded-full px-1 text-sm text-ink-3 hover:text-ink"
-            @click="selectedId = null">
-            <IconArrowLeft class="size-4" />
-            All controls
-          </button>
-          <h2 class="text-lg font-semibold">{{ selected.label }}</h2>
-          <p class="mt-0.5 text-sm text-ink-3">{{ DESCRIPTIONS[selected.control.id] }}</p>
-          <p v-if="selected.shared" class="mt-3 flex gap-2 rounded-lg bg-warn-fill px-3 py-2 text-[13px] text-warn">
-            <IconWarning class="mt-px size-4 shrink-0" />
-            {{ state?.optionsPlusRunning ? "Logi Options+" : "Another app" }} also responds to it while it's left at
-            its default here.
-          </p>
-        </header>
+        <UiContextMenu :items="menuFor(selected)">
+          <header class="px-6 pt-4 pb-5">
+            <button
+              type="button"
+              class="-ml-1 mb-2 inline-flex items-center gap-1.5 rounded-full px-1 text-sm text-ink-3 hover:text-ink"
+              @click="selectedId = null">
+              <PhArrowLeft class="size-4" />
+              All controls
+            </button>
+            <h2 class="text-lg font-semibold">{{ selected.label }}</h2>
+            <p class="mt-0.5 text-sm text-ink-3">{{ DESCRIPTIONS[selected.control.id] }}</p>
+            <p
+              v-if="selected.shared"
+              class="mt-3 flex gap-2 rounded-lg bg-warn-fill px-3 py-2 text-[13px] text-warn">
+              <PhWarning class="mt-px size-4 shrink-0" />
+              {{ state?.optionsPlusRunning ? "Logi Options+" : "Another app" }} also responds to
+              this control. Set it here so a press does one thing.
+            </p>
+          </header>
+        </UiContextMenu>
 
         <div class="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 pb-6">
           <WheelSettings v-if="selected.control.id === 'wheel'" :device="device" />
           <ThumbWheelSettings v-else-if="selected.control.id === 'thumbwheel'" :device="device" />
           <SensorSettings v-else-if="selected.control.id === 'sensor'" :device="device" />
           <template v-else-if="selected.button">
-            <ButtonEditor :button="selected.button" :binding="bindingFor(selected.button.id)" :apply="apply" />
+            <ButtonEditor
+              :button="selected.button"
+              :binding="bindingFor(selected.button.id)"
+              :apply="apply" />
             <HapticSettings v-if="selected.control.id === 'haptic'" :device="device" />
           </template>
         </div>
 
-        <footer class="flex h-14 shrink-0 items-center justify-between border-t border-line pr-3 pl-6">
+        <footer
+          class="flex h-14 shrink-0 items-center justify-between border-t border-line pr-3 pl-6">
           <span class="flex items-center gap-2 text-[13px] text-ink-3">
-            <span class="size-1.5 rounded-full" :class="selected.customized ? 'bg-accent' : 'bg-fill-strong'" />
-            {{ selected.customized ? "Changed from the default" : "Using the default" }}
+            <span
+              class="size-1.5 rounded-full"
+              :class="selected.customized ? 'bg-accent' : 'bg-fill-strong'" />
+            {{ selected.customized ? "Customized" : "Default" }}
           </span>
-          <UiButton variant="ghost" size="sm" :disabled="!selected.customized" @click="resetSelected">
+          <UiButton
+            variant="ghost"
+            size="sm"
+            :disabled="!selected.customized"
+            @click="reset(selected)">
             Reset to default
           </UiButton>
         </footer>
@@ -141,9 +166,17 @@
 </template>
 
 <script setup lang="ts">
+import {
+  PhArrowCounterClockwise,
+  PhArrowLeft,
+  PhCaretRight,
+  PhSlidersHorizontal,
+  PhWarning,
+} from "@phosphor-icons/vue";
 import { animate, AnimatePresence, motion, useReducedMotion } from "motion-v";
 import type { ButtonBinding, ButtonState } from "~/composables/useAgent";
 import type { ControlId } from "~/utils/controlMap";
+import type { MenuEntry } from "~/utils/menu";
 
 const { state, device, lastGesture, lastPress, attempt } = useAgent();
 
@@ -153,6 +186,12 @@ const bindingFor = (button: string) => bindings.value.find((b) => b.button === b
 const selectedId = ref<ControlId | null>(null);
 const hoveredId = ref<ControlId | null>(null);
 
+/** Names where the mouse's own differ from what Logitech prints on the box. */
+const LABELS: Partial<Record<ControlId, string>> = {
+  smartshift: "Top button",
+  haptic: "Haptic button",
+};
+
 // The controls this mouse has; a button it doesn't have has no row.
 const present = computed(() => {
   const mouse = device.value;
@@ -160,7 +199,16 @@ const present = computed(() => {
   return CONTROLS.flatMap((control) => {
     const button = mouse.buttons.find((b) => b.id === control.id);
     if (control.id === "wheel")
-      return [{ control, button, label: "Scroll wheel", summary: wheelSummary(), customized: wheelCustomized(), shared: false }];
+      return [
+        {
+          control,
+          button,
+          label: "Scroll wheel",
+          summary: wheelSummary(),
+          customized: wheelCustomized(),
+          shared: false,
+        },
+      ];
     if (control.id === "thumbwheel") {
       if (!mouse.thumbWheel) return [];
       const customized = !isDefaultThumbWheel(state.value!.thumbWheel);
@@ -177,22 +225,47 @@ const present = computed(() => {
     }
     if (control.id === "sensor") {
       const { current, default: standard } = mouse.dpi;
-      return [{ control, button, label: "Sensor", summary: `${current} DPI`, customized: current !== standard, shared: false }];
+      return [
+        {
+          control,
+          button,
+          label: "Sensor",
+          summary: `${current} DPI`,
+          customized: current !== standard,
+          shared: false,
+        },
+      ];
     }
     if (!button) return [];
-    const label = control.id === "haptic" ? "Haptic sense panel" : `${button.name} button`;
+    const label = LABELS[control.id] ?? `${button.name} button`;
     const customized = !!bindingFor(button.id);
-    return [{ control, button, label, summary: describe(button), customized, shared: button.divertedElsewhere && !customized }];
+    return [
+      {
+        control,
+        button,
+        label,
+        summary: describe(button),
+        customized,
+        shared: button.divertedElsewhere && !customized,
+      },
+    ];
   });
 });
 
 const layout = computed(() => layoutList(present.value.map((item) => item.control)));
-const items = computed(() => present.value.map((item) => ({ ...item, ...layout.value.rows.get(item.control.id)! })));
+const items = computed(() =>
+  present.value.map((item) => ({ ...item, ...layout.value.rows.get(item.control.id)! })),
+);
 const groups = computed(() =>
-  layout.value.headers.map((header) => ({ ...header, items: items.value.filter((item) => item.control.group === header.id) })),
+  layout.value.headers.map((header) => ({
+    ...header,
+    items: items.value.filter((item) => item.control.group === header.id),
+  })),
 );
 
-const selected = computed(() => items.value.find((item) => item.control.id === selectedId.value) ?? null);
+const selected = computed(
+  () => items.value.find((item) => item.control.id === selectedId.value) ?? null,
+);
 
 // How far the stage has moved from the overview to a control's settings, from 0 to 1. The photo, its dots
 // and the line are all placed from the frame this gives, so they move together on the same spring.
@@ -212,16 +285,19 @@ watch(
 );
 onBeforeUnmount(() => focusing?.stop());
 
+// Each says what the control is; what it does by default is said by its settings.
 const DESCRIPTIONS: Record<ControlId, string> = {
-  wheel: "In ratchet mode the wheel clicks, and switches to free spin when you scroll fast.",
-  thumbwheel: "Scrolls sideways, or runs an action for each step you turn it.",
-  middle: "Pressing down on the scroll wheel.",
-  smartshift: "The button behind the wheel. On its own it switches the wheel between ratchet and free spin.",
-  back: "On its own it goes back, in browsers and file windows.",
-  forward: "On its own it goes forward, in browsers and file windows.",
-  gesture: "The button in the thumb rest, made for gestures: hold it and move the mouse.",
+  wheel: "How the main wheel feels as you scroll.",
+  thumbwheel: "The wheel under your thumb. It scrolls sideways, or runs an action each notch.",
+  middle: "Pressing the scroll wheel straight down.",
+  smartshift:
+    "The button behind the wheel. By default it switches the wheel between clicking and free spin.",
+  back: "The rear thumb button.",
+  forward: "The front thumb button.",
+  gesture: "The button in the thumb rest.",
   haptic: "The panel under your thumb. It clicks with a haptic tap rather than a switch.",
-  sensor: "Stored on the mouse, so it follows the mouse to other computers.",
+  sensor:
+    "How far the pointer moves as you move the mouse. Saved on the mouse, so it follows it to other computers.",
 };
 
 function wheelSummary() {
@@ -243,7 +319,9 @@ function thumbWheelSummary() {
   const inverted = wheel.inverted ? ", inverted" : "";
   if (wheel.mode === "actions")
     return `${describeAction(wheel.left ?? NOTHING)} / ${describeAction(wheel.right ?? NOTHING)}${inverted}`;
-  return wheel.speed === 100 ? `Scroll sideways${inverted}` : `Scroll sideways ${wheel.speed}%${inverted}`;
+  return wheel.speed === 100
+    ? `Scroll sideways${inverted}`
+    : `Scroll sideways ${wheel.speed}%${inverted}`;
 }
 
 function describe(button: ButtonState) {
@@ -294,24 +372,35 @@ watch(lastPress, (press) => {
 });
 
 // Names the gesture that just fired, for a moment.
-const DIRECTION_LABELS: Record<string, string> = { click: "Click", up: "↑ Up", down: "↓ Down", left: "← Left", right: "→ Right" };
+const DIRECTION_LABELS: Record<string, string> = {
+  click: "Click",
+  up: "↑ Up",
+  down: "↓ Down",
+  left: "← Left",
+  right: "→ Right",
+};
 const flashed = ref<{ id: number; name: string; label: string } | null>(null);
 let flashes = 0;
 let clearFlash: ReturnType<typeof setTimeout> | undefined;
 watch(lastGesture, (gesture) => {
   const button = device.value?.buttons.find((b) => b.id === gesture?.button);
   if (!gesture || !button) return;
-  flashed.value = { id: ++flashes, name: button.name, label: DIRECTION_LABELS[gesture.direction] ?? gesture.direction };
+  flashed.value = {
+    id: ++flashes,
+    name: button.name,
+    label: DIRECTION_LABELS[gesture.direction] ?? gesture.direction,
+  };
   clearTimeout(clearFlash);
   clearFlash = setTimeout(() => (flashed.value = null), 1500);
 });
 onBeforeUnmount(() => clearTimeout(clearFlash));
 
-/** Puts the open control back to its default; the toast can put back what it was. */
-function resetSelected() {
-  const item = selected.value!;
+type Item = (typeof items.value)[number];
+
+/** Puts a control back to its default; the toast can put back what it was. */
+function reset(item: Item) {
   const mouse = device.value!;
-  if (item.button) return apply(null);
+  if (item.button) return apply(null, item);
   if (item.control.id === "wheel") {
     const shift = mouse.smartShift;
     return resetWith(
@@ -331,12 +420,40 @@ function resetSelected() {
   return resetWith(item.label, "setDpi", { dpi: mouse.dpi.default }, { dpi: mouse.dpi.current });
 }
 
-async function resetWith(label: string, method: string, params: Record<string, unknown>, before: Record<string, unknown>) {
+async function resetWith(
+  label: string,
+  method: string,
+  params: Record<string, unknown>,
+  before: Record<string, unknown>,
+) {
   if (!(await attempt(method, params, `Couldn't reset the ${label.toLowerCase()}`))) return;
-  showToast(`${label} is back to its default`, "neutral", {
+  showToast(`${label} reset to default`, "neutral", {
     key: method,
-    action: { label: "Undo", run: () => void attempt(method, before, `Couldn't put the ${label.toLowerCase()} back`) },
+    action: {
+      label: "Undo",
+      run: () => void attempt(method, before, `Couldn't put the ${label.toLowerCase()} back`),
+    },
   });
+}
+
+function menuFor(item: Item): MenuEntry[] {
+  const open = item.control.id === selectedId.value;
+  return [
+    open
+      ? { label: "All controls", icon: PhArrowLeft, select: () => (selectedId.value = null) }
+      : {
+          label: "Open settings",
+          icon: PhSlidersHorizontal,
+          select: () => (selectedId.value = item.control.id),
+        },
+    "separator",
+    {
+      label: "Reset to default",
+      icon: PhArrowCounterClockwise,
+      disabled: !item.customized,
+      select: () => reset(item),
+    },
+  ];
 }
 
 /** Sets one button's binding, or its default for null, keeping the others. */
@@ -347,8 +464,8 @@ function setBinding(button: string, binding: ButtonBinding | null) {
 }
 
 // Changes apply as they're made; the toast says what the button does now and can put back what it did.
-async function apply(binding: ButtonBinding | null) {
-  const { label, button } = selected.value!;
+async function apply(binding: ButtonBinding | null, item: Item = selected.value!) {
+  const { label, button } = item;
   const before = bindingFor(button!.id) ?? null;
   if (!(await setBinding(button!.id, binding))) return false;
   showToast(`${label}: ${describe(button!)}${binding ? "" : " (default)"}`, "neutral", {

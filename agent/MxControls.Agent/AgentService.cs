@@ -46,7 +46,7 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
 
     public AgentState State =>
         new(_device is not null && _deviceState is not null, _deviceState, _settings.AllBindings, _settings.Active.Wheel,
-            _settings.AllProfiles.Select(p => new ProfileSummary(p.Id, p.Name)).ToArray(), _settings.Active.Id,
+            _settings.AllProfiles.Select(p => new ProfileSummary(p.Id, p.Name, p.Icon)).ToArray(), _settings.Active.Id,
             _settings.StartAtLogin, _optionsPlus, _error, Interlocked.Read(ref _revision));
 
     public async Task RunAsync(CancellationToken stop)
@@ -355,7 +355,14 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
             case "createProfile":
                 var source = args.TryGetProperty("copyFrom", out var from) && from.GetString() is { } fromId ? FindProfile(fromId) : null;
                 var created = ProfileName(args);
-                await _queue.RunAsync(() => ChangeSettingsAsync(s => CreateProfile(s, created, source)));
+                var createdIcon = args.TryGetProperty("icon", out _) ? ProfileIcon(args) : source?.Icon;
+                await _queue.RunAsync(() => ChangeSettingsAsync(s => CreateProfile(s, created, createdIcon, source)));
+                break;
+            case "setProfileIcon":
+                var iconFor = ProfileArg(args).Id;
+                var icon = ProfileIcon(args);
+                await _queue.RunAsync(() => ChangeSettingsAsync(
+                    s => s with { Profiles = s.AllProfiles.Select(p => p.Id == iconFor ? p with { Icon = icon } : p).ToArray() }, apply: false));
                 break;
             case "renameProfile":
                 var id = ProfileArg(args).Id;
@@ -497,10 +504,18 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
     private static string ProfileName(JsonElement args) =>
         args.GetProperty("name").GetString()?.Trim() is { Length: > 0 } name ? name : throw new ArgumentException("A profile needs a name.");
 
+    /// <summary>The app only draws names it knows, so anything else is refused rather than stored as a blank.</summary>
+    private static string? ProfileIcon(JsonElement args) =>
+        args.TryGetProperty("icon", out var icon) && icon.GetString() is { } value
+            ? value.Length is > 0 and <= 40 && value.All(c => c is '-' or (>= 'a' and <= 'z') or (>= '0' and <= '9'))
+                ? value
+                : throw new ArgumentException($"'{value}' isn't an icon name.")
+            : null;
+
     /// <summary>A new profile, active from now on: a copy of <paramref name="source"/>, or every control at its default.</summary>
-    private static AgentSettings CreateProfile(AgentSettings settings, string name, Profile? source)
+    private static AgentSettings CreateProfile(AgentSettings settings, string name, string? icon, Profile? source)
     {
-        var profile = (source ?? new Profile("", name, [])) with { Id = Profile.NewId(), Name = name };
+        var profile = (source ?? new Profile("", name, [])) with { Id = Profile.NewId(), Name = name, Icon = icon };
         return settings with { Profiles = [.. settings.AllProfiles, profile], ActiveProfile = profile.Id };
     }
 

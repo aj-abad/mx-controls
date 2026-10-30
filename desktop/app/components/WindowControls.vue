@@ -1,18 +1,33 @@
 <template>
   <!-- The window's own minimize and close, drawn like the header's other buttons; macOS keeps its traffic lights.
-       They dim while the window is in the background, as system title bars do. -->
+       They dim while the window is in the background, as system title bars do. Like a system title bar's, they
+       stay out of the tab order: the keyboard has Alt+F4 and Win+Down, and Tab shouldn't stop on Close on its way
+       to the settings. Screen readers still reach them by name. -->
   <div class="flex items-center gap-1 transition-opacity duration-150" :class="!focused && 'opacity-50'">
     <span class="mr-1 h-5 w-px bg-line" aria-hidden="true" />
-    <button type="button" aria-label="Minimize" :class="BUTTON" class="hover:bg-fill hover:text-ink" @click="minimize">
-      <IconMinimize class="size-4" />
+    <button
+      type="button"
+      tabindex="-1"
+      aria-label="Minimize"
+      :class="BUTTON"
+      class="hover:bg-fill hover:text-ink"
+      @click="minimize">
+      <PhMinus class="size-4" />
     </button>
-    <button type="button" aria-label="Close" :class="BUTTON" class="hover:bg-danger hover:text-white" @click="close">
-      <IconClose class="size-4" />
+    <button
+      type="button"
+      tabindex="-1"
+      aria-label="Close"
+      :class="BUTTON"
+      class="hover:bg-danger hover:text-white"
+      @click="close">
+      <PhX class="size-4" />
     </button>
   </div>
 </template>
 
 <script setup lang="ts">
+import { PhMinus, PhX } from "@phosphor-icons/vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 const BUTTON =

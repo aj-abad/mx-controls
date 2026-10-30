@@ -3,7 +3,7 @@
     <UiSlider
       v-model="dpi"
       label="Pointer speed"
-      :description="`${device.dpi.default} DPI is the default.`"
+      :default-value="device.dpi.default"
       :min="device.dpi.min"
       :max="device.dpi.max"
       :step="device.dpi.step"

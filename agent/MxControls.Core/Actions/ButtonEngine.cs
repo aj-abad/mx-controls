@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using MxControls.Features;
 using MxControls.Hidpp;
 using MxControls.Platform;
@@ -27,6 +28,7 @@ public sealed class ButtonEngine : IAsyncDisposable
     private readonly GestureTracker _tracker = new();
     private HashSet<ushort> _held = [];
     private ushort? _gestureButton;
+    private int _hapticSending;
 
     /// <summary>A gesture fired: control ID and "click", "up", "down", "left" or "right".</summary>
     public event Action<ushort, string>? GestureFired;
@@ -41,6 +43,8 @@ public sealed class ButtonEngine : IAsyncDisposable
         _platform = platform;
         _runner = new ActionRunner(platform, _gate);
     }
+
+    private static long Now => Stopwatch.GetTimestamp() * 1000 / Stopwatch.Frequency;
 
     /// <summary>The mouse's DPI, which gesture distances are measured with. Set it when the DPI changes.</summary>
     public int Dpi
@@ -156,7 +160,8 @@ public sealed class ButtonEngine : IAsyncDisposable
             if (binding.IsGesture)
             {
                 _gestureButton = cid;
-                _tracker.Reset();
+                var gesture = binding.Gesture!;
+                _tracker.Reset(direction => gesture[direction].Repeat);
             }
             else
             {
@@ -183,17 +188,30 @@ public sealed class ButtonEngine : IAsyncDisposable
 
     private void OnMove(ushort cid, int dx, int dy)
     {
-        if (_tracker.Add(dx, dy) is { } direction)
+        if (_tracker.Add(dx, dy, Now) is { } direction)
             Fire(cid, direction);
     }
 
-    /// <summary>Runs a direction's action, held with the button.</summary>
+    /// <summary>
+    /// Runs a direction's action: held with the button, or tapped when it repeats, since a repeating direction
+    /// fires again with movement rather than with time.
+    /// </summary>
     private void Fire(ushort cid, GestureDirection direction)
     {
-        // The tap goes out first so it lands with the action rather than after it.
-        if (GestureHaptic is { } waveform)
-            _ = Task.Run(() => _device.Haptics.TapAsync(waveform));
-        _runner.Begin(cid, _bindings[cid].Gesture![direction]);
+        // The tap goes out first so it lands with the action rather than after it. Repeats can fire faster than
+        // the radio carries taps, so one is skipped while the last is still going out.
+        if (GestureHaptic is { } waveform && Interlocked.Exchange(ref _hapticSending, 1) == 0)
+            _ = Task.Run(async () =>
+            {
+                try { await _device.Haptics.TapAsync(waveform); }
+                finally { Volatile.Write(ref _hapticSending, 0); }
+            });
+        var action = _bindings[cid].Gesture![direction];
+        _runner.End(cid);
+        if (action.Repeat)
+            _runner.Run(action);
+        else
+            _runner.Begin(cid, action);
         GestureFired?.Invoke(cid, direction.ToString().ToLowerInvariant());
     }
 

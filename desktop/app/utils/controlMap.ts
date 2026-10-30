@@ -27,7 +27,7 @@ export const GROUPS: { id: GroupId; label: string }[] = [
 export interface Control {
   id: ControlId;
   group: GroupId;
-  /** Where the control sits on `public/mx-master-4.png` (766 × 518), in pixels of the photo. */
+  /** Where the control sits on `public/mx-master-4.png` (961 × 603), in pixels of the photo. */
   spot: Point;
   /**
    * `steep` rises at 75° to its row, for the controls on top of the mouse whose rows sit above it.
@@ -36,7 +36,7 @@ export interface Control {
   leg: "steep" | "gutter";
 }
 
-const PHOTO = { width: 766, height: 518 };
+const PHOTO = { width: 961, height: 603 };
 
 export const STAGE = { width: 1060, height: 540 };
 export const LIST = { x: 720, width: 340, padding: 6, header: 30, row: 44 };
@@ -49,9 +49,9 @@ export interface Frame {
   edge: number;
 }
 
-export const OVERVIEW: Frame = { image: { x: 0, y: 126, scale: 0.82 }, edge: LIST.x };
+export const OVERVIEW: Frame = { image: { x: 0, y: 126, scale: 0.65 }, edge: LIST.x };
 /** With a control open, the photo steps back to make room for its settings. */
-export const FOCUS: Frame = { image: { x: 0, y: 120, scale: 0.72 }, edge: INSPECTOR.x };
+export const FOCUS: Frame = { image: { x: 0, y: 120, scale: 0.57 }, edge: INSPECTOR.x };
 
 const mix = (from: number, to: number, t: number) => from + (to - from) * t;
 export const mixFrames = (from: Frame, to: Frame, t: number): Frame => ({
@@ -66,21 +66,21 @@ export const mixFrames = (from: Frame, to: Frame, t: number): Frame => ({
 /** Lines stop short of their row, so the round cap doesn't poke into the card. */
 const LINE_GAP = 4;
 /** The column the thumb controls' lines bend at, in pixels of the photo, so it moves with it. */
-const GUTTER = 646;
+const GUTTER = 750;
 const STEEP = 1 / Math.tan((75 * Math.PI) / 180);
 
 /** In list order, top to bottom, grouped as `GROUPS`. */
 export const CONTROLS: Control[] = [
-  { id: "wheel", group: "scrolling", spot: { x: 205, y: 262 }, leg: "steep" },
-  { id: "thumbwheel", group: "scrolling", spot: { x: 500, y: 128 }, leg: "steep" },
-  { id: "middle", group: "buttons", spot: { x: 255, y: 203 }, leg: "steep" },
-  { id: "smartshift", group: "buttons", spot: { x: 321, y: 113 }, leg: "steep" },
-  { id: "back", group: "buttons", spot: { x: 545, y: 152 }, leg: "gutter" },
-  { id: "forward", group: "buttons", spot: { x: 510, y: 202 }, leg: "gutter" },
-  { id: "gesture", group: "buttons", spot: { x: 459, y: 256 }, leg: "gutter" },
-  { id: "haptic", group: "buttons", spot: { x: 517, y: 295 }, leg: "gutter" },
+  { id: "wheel", group: "scrolling", spot: { x: 200, y: 315 }, leg: "steep" },
+  { id: "thumbwheel", group: "scrolling", spot: { x: 660, y: 128 }, leg: "steep" },
+  { id: "middle", group: "buttons", spot: { x: 272, y: 245 }, leg: "steep" },
+  { id: "smartshift", group: "buttons", spot: { x: 410, y: 128 }, leg: "steep" },
+  { id: "back", group: "buttons", spot: { x: 700, y: 210 }, leg: "gutter" },
+  { id: "forward", group: "buttons", spot: { x: 628, y: 280 }, leg: "gutter" },
+  { id: "gesture", group: "buttons", spot: { x: 537, y: 357 }, leg: "gutter" },
+  { id: "haptic", group: "buttons", spot: { x: 635, y: 395 }, leg: "gutter" },
   // The sensor is underneath, so its spot sits on the base below the thumb rest.
-  { id: "sensor", group: "pointer", spot: { x: 430, y: 420 }, leg: "gutter" },
+  { id: "sensor", group: "pointer", spot: { x: 690, y: 522 }, leg: "gutter" },
 ];
 
 /** Where each group's heading and each control's row sit in the list, for the controls this mouse has. */

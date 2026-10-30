@@ -1,0 +1,25 @@
+import type { Component } from "vue";
+
+export interface MenuAction {
+  label: string;
+  icon?: Component;
+  /** Destroys something, so it reads in red. */
+  danger?: boolean;
+  disabled?: boolean;
+  /** Shows a check, for an item that toggles or names the current choice. */
+  checked?: boolean;
+  select: () => void;
+}
+
+/** What `UiContextMenu` lists, top to bottom; a separator splits it into groups. */
+export type MenuEntry = MenuAction | "separator";
+
+/** Copies text to the clipboard and says so. */
+export async function copyText(text: string, what: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    showToast(`Copied ${what}`, "neutral", { key: "copy" });
+  } catch {
+    showToast(`Couldn't copy the ${what}`, "error", { key: "copy" });
+  }
+}

@@ -1,21 +1,26 @@
 <template>
   <div class="flex flex-col gap-6">
-    <SettingRow label="SmartShift" label-for="ratchet" description="Off keeps the wheel in free spin.">
+    <SettingRow
+      label="SmartShift"
+      label-for="ratchet"
+      description="Clicks notch by notch, and spins freely when you scroll fast. Off, it always spins freely.">
       <UiSwitch id="ratchet" v-model="ratchet" @update:model-value="save" />
     </SettingRow>
     <template v-if="ratchet">
       <UiSlider
         v-model="autoDisengage"
-        label="Sensitivity"
-        :description="`How fast you scroll before the wheel spins freely. ${device.smartShift.defaultAutoDisengage} is the default.`"
+        label="Threshold"
+        description="How fast you scroll before the wheel spins freely."
+        :default-value="device.smartShift.defaultAutoDisengage"
         :min="1"
         :max="50"
         @commit="save" />
       <UiSlider
         v-if="device.smartShift.tunableTorque"
         v-model="torque"
-        label="Scroll force"
-        :description="`How firmly the wheel clicks. ${device.smartShift.defaultTorque}% is the default.`"
+        label="Scroll detent"
+        description="How firmly the wheel clicks."
+        :default-value="device.smartShift.defaultTorque"
         :min="1"
         :max="100"
         :format="(value) => `${value}%`"

@@ -9,27 +9,29 @@
     <div v-else class="flex flex-col gap-4">
       <p class="text-sm text-ink-3">Hold the button and move the mouse, or click it without moving.</p>
       <div class="flex flex-wrap items-center gap-1.5">
-        <span class="mr-0.5 text-xs text-ink-3">Start from</span>
+        <span class="mr-0.5 text-xs text-ink-3">Presets</span>
         <button
           v-for="preset in GESTURE_PRESETS"
           :key="preset.id"
           type="button"
           class="h-7 rounded-full bg-field px-3 text-xs font-medium ring-1 ring-line ring-inset transition-colors hover:bg-fill"
-          @click="applyGesturePreset(preset.parts)">
+          @click="applyGesturePreset(preset)">
           {{ preset.label }}
         </button>
       </div>
       <GesturePad v-model="part" :gesture="draft.gesture" :fired="fired" :label="`${button.name} gesture`" />
       <div class="flex flex-col gap-2">
-        <span class="text-sm font-medium">{{ part === "click" ? "Click does" : `Moving ${partLabel.toLowerCase()} does` }}</span>
+        <span class="text-sm font-medium">{{ partHeading }}</span>
         <ActionEditor
           :key="part"
           v-model="draft.gesture[part]"
           :label="`${button.name} ${partLabel.toLowerCase()}`"
-          :allow-hold="part !== 'click'" />
+          :allow-hold="part !== 'click'"
+          :allow-repeat="part !== 'click'"
+          repeat-label="Repeat as you keep moving" />
       </div>
       <p v-if="unfinished" class="text-sm text-warn">
-        {{ unfinished.label }} has no keys yet. The gesture changes once it does.
+        Record keys for “{{ unfinished.id === "click" ? "Click" : `Move ${unfinished.label.toLowerCase()}` }}” to save this gesture.
       </p>
     </div>
   </div>
@@ -51,9 +53,11 @@ const MODE_OPTIONS = [
   { value: "gesture", label: "Gesture" },
 ];
 
+/** What the button does without MX Controls, for the buttons whose own action is known. */
+const OWN_ACTIONS: Record<string, string> = { back: "Goes back", forward: "Goes forward", middle: "Middle-clicks" };
 const defaultText = computed(() => {
-  const own = MOUSE_BUTTONS[button.id];
-  return own ? `${own}, as the mouse does on its own.` : "The button does what the mouse does on its own.";
+  const own = OWN_ACTIONS[button.id];
+  return own ? `${own}, as it does without MX Controls.` : "Does what it does without MX Controls.";
 });
 
 const mode = ref("default");
@@ -61,10 +65,14 @@ const draft = ref<{ action: ButtonAction; gesture: GestureActions } | null>(null
 
 const part = ref<keyof GestureActions>("click");
 const partLabel = computed(() => GESTURE_PARTS.find((p) => p.id === part.value)!.label);
+const partHeading = computed(() => (part.value === "click" ? "Click" : `Move ${partLabel.value.toLowerCase()}`));
 
-function applyGesturePreset(parts: Record<keyof GestureActions, string>) {
+function applyGesturePreset({ parts, repeating }: GesturePreset) {
   const gesture = blankGesture();
-  for (const id of Object.keys(parts) as (keyof GestureActions)[]) gesture[id] = presetById(parts[id])?.action ?? NOTHING;
+  for (const id of Object.keys(parts) as (keyof GestureActions)[]) {
+    const action = presetById(parts[id])?.action ?? NOTHING;
+    gesture[id] = repeating?.includes(id) ? { ...action, repeat: true } : action;
+  }
   draft.value!.gesture = gesture;
 }
 

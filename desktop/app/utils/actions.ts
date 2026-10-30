@@ -97,8 +97,15 @@ const PRESETS_BY_IDENTITY = new Map(PRESETS.map((preset) => [identity(preset.act
 
 export const presetFor = (action: ButtonAction) => PRESETS_BY_IDENTITY.get(identity(action));
 
-/** Gestures filled in one go, by preset ID for each part. */
-export const GESTURE_PRESETS: { id: string; label: string; parts: Record<keyof GestureActions, string> }[] = [
+/** A gesture filled in one go: a preset ID for each part, and the parts that repeat as the movement keeps going. */
+export interface GesturePreset {
+  id: string;
+  label: string;
+  parts: Record<keyof GestureActions, string>;
+  repeating?: (keyof GestureActions)[];
+}
+
+export const GESTURE_PRESETS: GesturePreset[] = [
   {
     id: "desktops",
     label: "Desktops",
@@ -113,6 +120,7 @@ export const GESTURE_PRESETS: { id: string; label: string; parts: Record<keyof G
     id: "media",
     label: "Media",
     parts: { click: "playPause", up: "volumeUp", down: "volumeDown", left: "previousTrack", right: "nextTrack" },
+    repeating: ["up", "down"],
   },
 ];
 

@@ -74,25 +74,27 @@
     </g>
   </svg>
 
-  <!-- What you click and tab to; the dot it sits on is drawn above. -->
-  <button
-    v-for="(item, i) in items"
-    :key="item.control.id"
-    type="button"
-    :aria-label="item.label"
-    :aria-pressed="selected === item.control.id"
-    class="absolute size-10 -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-full"
-    :style="{ left: `${dots[i]!.x}px`, top: `${dots[i]!.y}px` }"
-    @click="emit('select', item.control.id)"
-    @pointerdown="pressed = item.control.id"
-    @pointerup="pressed = null"
-    @pointerenter="emit('hover', item.control.id)"
-    @pointerleave="(pressed = null), emit('hover', null)" />
+  <!-- What you click; the dot it sits on is drawn above. Kept out of the tab order, as the list reaches every control. -->
+  <UiContextMenu v-for="(item, i) in items" :key="item.control.id" :items="menu?.(item.control.id) ?? []">
+    <button
+      type="button"
+      tabindex="-1"
+      :aria-label="item.label"
+      :aria-pressed="selected === item.control.id"
+      class="absolute size-10 -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-full"
+      :style="{ left: `${dots[i]!.x}px`, top: `${dots[i]!.y}px` }"
+      @click="emit('select', item.control.id)"
+      @pointerdown="pressed = item.control.id"
+      @pointerup="pressed = null"
+      @pointerenter="emit('hover', item.control.id)"
+      @pointerleave="(pressed = null), emit('hover', null)" />
+  </UiContextMenu>
 </template>
 
 <script setup lang="ts">
 import { motion } from "motion-v";
 import type { Control, ControlId, Frame } from "~/utils/controlMap";
+import type { MenuEntry } from "~/utils/menu";
 
 const { items, frame } = defineProps<{
   /** The controls this mouse has, each with the top of its row in the list. */
@@ -103,6 +105,8 @@ const { items, frame } = defineProps<{
   frame: Frame;
   /** The control last pressed on the mouse; `n` counts presses, so each one plays again. */
   pulse: { id: ControlId; n: number } | null;
+  /** What right-clicking a control's dot offers. */
+  menu?: (id: ControlId) => MenuEntry[];
 }>();
 const emit = defineEmits<{ select: [id: ControlId]; hover: [id: ControlId | null] }>();
 

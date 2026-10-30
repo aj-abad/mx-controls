@@ -5,7 +5,7 @@
       class="flex h-10 w-full items-center gap-2 rounded-lg bg-field px-3 text-left text-sm ring-1 ring-line ring-inset hover:ring-fill-strong data-[state=open]:ring-ink">
       <span class="min-w-0 flex-1 truncate">{{ current.label }}</span>
       <span v-if="current.hint" class="shrink-0 text-xs text-ink-3">{{ current.hint }}</span>
-      <IconChevronDown class="size-4 shrink-0 text-ink-3" />
+      <PhCaretDown class="size-4 shrink-0 text-ink-3" />
     </PopoverTrigger>
     <PopoverPortal>
       <PopoverContent
@@ -35,7 +35,7 @@
                 <span class="min-w-0 flex-1 truncate">{{ choice.label }}</span>
                 <span v-if="choice.hint" class="shrink-0 text-xs text-ink-3">{{ choice.hint }}</span>
                 <ListboxItemIndicator class="absolute right-2.5">
-                  <IconCheck class="size-4" />
+                  <PhCheck class="size-4" />
                 </ListboxItemIndicator>
               </ListboxItem>
             </ListboxGroup>
@@ -48,6 +48,7 @@
 </template>
 
 <script setup lang="ts">
+import { PhCaretDown, PhCheck } from "@phosphor-icons/vue";
 import {
   ListboxContent,
   ListboxFilter,

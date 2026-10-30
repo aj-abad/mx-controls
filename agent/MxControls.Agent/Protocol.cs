@@ -24,7 +24,7 @@ public sealed record AgentState(
     IReadOnlyList<ProfileSummary> Profiles, string ActiveProfile, bool StartAtLogin, bool OptionsPlusRunning, string? Error,
     long Revision);
 
-public sealed record ProfileSummary(string Id, string Name);
+public sealed record ProfileSummary(string Id, string Name, string? Icon);
 
 public sealed record DeviceState(
     string Name, string ProductId, string Firmware, BatteryState Battery, DpiState Dpi, SmartShiftSettings SmartShift,

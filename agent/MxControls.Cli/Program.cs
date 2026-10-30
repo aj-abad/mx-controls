@@ -8,7 +8,9 @@ const string Usage = """
     Usage:
       mx info                                  Feature table, firmware, buttons and settings (read-only)
       mx listen [seconds] [--all]              Log diverted button presses; --all diverts every button meanwhile
-      mx gestures [seconds] [--trace <file>]   Log gesture button swipes and what they'd fire; --trace saves them as JSON lines
+      mx gestures [seconds] [--repeat] [--trace <file>]
+                                               Log gesture button swipes and what they'd fire; --repeat as if every
+                                               direction repeats, --trace saves them as JSON lines
       mx haptic <waveform>                     Play a haptic waveform, such as Completed or Knock
       mx hold <button>=<key> ... [--seconds N] Hold keyboard keys while mouse buttons are held
 
@@ -83,6 +85,14 @@ static async Task<int> Info(MxDevice mx)
     if (mx.Hosts.Supported)
     {
         var hosts = await mx.Hosts.GetAsync();
+        if (mx.Has(FeatureIds.HostsInfo))
+        {
+            // Byte 0: 0x01 read names, 0x02 write names, 0x04 move a channel, 0x08 unpair one, 0x10 set the OS.
+            var caps = await mx.CallAsync(FeatureIds.HostsInfo, 0);
+            string[] names = ["read names", "rename", "move", "unpair", "set OS"];
+            var can = names.Where((_, bit) => (caps[0] & 1 << bit) != 0);
+            Console.WriteLine($"  Easy-Switch  capabilities {caps[0]:X2}{caps[1]:X2}: {string.Join(", ", can)}");
+        }
         foreach (var channel in hosts.Channels)
             Console.WriteLine($"  Channel {channel.Index + 1}    {(channel.Paired ? channel.Name is "" ? "paired" : channel.Name : "empty")}"
                 + (channel.Index == hosts.Current ? " (this computer)" : ""));
@@ -150,10 +160,13 @@ static async Task<int> Gestures(MxDevice mx, string[] args)
 {
     double seconds = 60;
     string? tracePath = null;
+    bool repeat = false;
     for (int i = 0; i < args.Length; i++)
     {
         if (args[i] == "--trace" && i + 1 < args.Length)
             tracePath = args[++i];
+        else if (args[i] == "--repeat")
+            repeat = true;
         else if (double.TryParse(args[i], out var s))
             seconds = s;
         else
@@ -183,18 +196,18 @@ static async Task<int> Gestures(MxDevice mx, string[] args)
                 trace?.WriteLine($$"""{"t":{{t.TotalMilliseconds:F1}},"held":{{(held ? "true" : "false")}}}""");
                 if (held)
                 {
-                    tracker.Reset();
+                    tracker.Reset(_ => repeat);
                     pressedAt = lastReport = t;
                     Console.WriteLine($"{t.TotalSeconds,8:F3}s  down");
                     return;
                 }
-                string result = tracker.Direction is { } d ? $"{d} (already fired)" : tracker.IsClick ? "click" : "nothing (diagonal)";
+                string result = tracker.Direction is { } d ? $"{d} fired last" : tracker.IsClick ? "click" : "nothing (diagonal)";
                 Console.WriteLine($"{t.TotalSeconds,8:F3}s  up    after {(t - pressedAt).TotalMilliseconds:F0} ms, {tracker.TravelMm:F1} mm: {result}");
             }
             else if (held && mx.Controls.ParseRawXY(e) is { } move)
             {
                 trace?.WriteLine($$"""{"t":{{t.TotalMilliseconds:F1}},"dx":{{move.Dx}},"dy":{{move.Dy}}}""");
-                var fired = tracker.Add(move.Dx, move.Dy);
+                var fired = tracker.Add(move.Dx, move.Dy, (long)t.TotalMilliseconds);
                 Console.WriteLine($"{t.TotalSeconds,8:F3}s    {move.Dx,5} {move.Dy,5}  +{(t - lastReport).TotalMilliseconds,4:F0} ms  {tracker.TravelMm,5:F1} mm"
                     + (fired is { } direction ? $"  -> {direction} after {(t - pressedAt).TotalMilliseconds:F0} ms" : ""));
                 lastReport = t;

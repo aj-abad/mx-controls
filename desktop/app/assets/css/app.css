@@ -1,8 +1,9 @@
 @import "tailwindcss";
+@import "@fontsource-variable/schibsted-grotesk";
 
 /* Light only, to sit with the device photo's white background. */
 @theme {
-  --font-sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --font-sans: "Schibsted Grotesk Variable", "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
 
   --color-canvas: #ffffff;
   --color-panel: #f5f5f7;
@@ -33,6 +34,15 @@
   @keyframes menu-out {
     to {
       opacity: 0;
+    }
+  }
+
+  /* A nearly flat battery blinks, slowly enough to read as a warning rather than an error. */
+  --animate-battery-flash: battery-flash 1.4s ease-in-out infinite;
+
+  @keyframes battery-flash {
+    50% {
+      opacity: 0.25;
     }
   }
 
@@ -72,8 +82,10 @@ body {
   user-select: none;
 }
 
-/* Reduce Motion: menus and toasts fade without moving. */
+/* Reduce Motion: menus and toasts fade without moving, and a flat battery stays red without blinking. */
 @media (prefers-reduced-motion: reduce) {
+  @keyframes battery-flash {
+  }
   @keyframes menu-in {
     from {
       opacity: 0;

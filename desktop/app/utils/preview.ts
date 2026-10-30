@@ -10,8 +10,9 @@ export function previewState(): AgentState {
     revision: 0,
     thumbWheel: { mode: "scroll", speed: 100, inverted: false },
     profiles: [
-      { id: "default", name: "Default" },
-      { id: "games", name: "Games" },
+      { id: "default", name: "Default", icon: null },
+      { id: "work", name: "Work", icon: "briefcase" },
+      { id: "games", name: "Games", icon: "game-controller" },
     ],
     activeProfile: "default",
     bindings: [
@@ -90,8 +91,12 @@ export function previewCall(state: AgentState, method: string, params: Record<st
       return { ...state, activeProfile: params.id as string };
     case "createProfile": {
       const id = Math.random().toString(36).slice(2, 10);
-      return { ...state, profiles: [...state.profiles, { id, name: params.name as string }], activeProfile: id };
+      const source = state.profiles.find((p) => p.id === params.copyFrom);
+      const icon = "icon" in params ? (params.icon as string | null) : (source?.icon ?? null);
+      return { ...state, profiles: [...state.profiles, { id, name: params.name as string, icon }], activeProfile: id };
     }
+    case "setProfileIcon":
+      return { ...state, profiles: state.profiles.map((p) => (p.id === params.id ? { ...p, icon: params.icon as string | null } : p)) };
     case "renameProfile":
       return { ...state, profiles: state.profiles.map((p) => (p.id === params.id ? { ...p, name: params.name as string } : p)) };
     case "deleteProfile": {

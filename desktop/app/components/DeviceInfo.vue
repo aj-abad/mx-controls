@@ -1,10 +1,15 @@
 <template>
   <PopoverRoot v-model:open="open">
-    <PopoverTrigger
-      class="group flex h-8 items-center gap-1.5 rounded-lg px-2 transition-colors hover:bg-fill data-[state=open]:bg-fill">
-      {{ device.name }}
-      <IconChevronDown class="size-4 text-ink-3 transition-transform group-data-[state=open]:rotate-180" />
-    </PopoverTrigger>
+    <!-- Anchored by hand: inside the context menu, the trigger would anchor the menu instead of the popover. -->
+    <PopoverAnchor as="template" :reference="trigger?.$el" />
+    <UiContextMenu :items="menu">
+      <PopoverTrigger
+        ref="trigger"
+        class="group flex h-8 items-center gap-1.5 rounded-lg px-2 transition-colors hover:bg-fill data-[state=open]:bg-fill">
+        {{ device.name }}
+        <PhCaretDown class="size-4 text-ink-3 transition-transform group-data-[state=open]:rotate-180" />
+      </PopoverTrigger>
+    </UiContextMenu>
     <UiPopoverContent :open="open" align="start" class="flex w-80 flex-col gap-5 p-5 text-base font-normal tracking-normal">
       <dl class="grid grid-cols-[6.5rem_1fr] gap-y-2.5 text-sm">
         <dt class="text-ink-3">Name</dt>
@@ -23,7 +28,7 @@
         <SettingRow
           label="Start at sign-in"
           label-for="start-at-login"
-          description="The background agent runs your buttons and gestures, even with this window closed.">
+          description="Keeps your buttons and gestures working after you sign in, even with this window closed.">
           <UiSwitch
             id="start-at-login"
             :model-value="state?.startAtLogin ?? true"
@@ -36,13 +41,13 @@
           label="Logi Options+"
           :description="
             state?.optionsPlusRunning
-              ? 'Running. It diverts some buttons too and acts on them alongside MX Controls.'
-              : 'Not running.'
+              ? 'It also responds to some buttons, so one press can do two things.'
+              : 'It isn\'t running, so it can\'t interfere.'
           ">
           <span
             class="rounded-full px-3 py-1 text-xs font-medium"
             :class="state?.optionsPlusRunning ? 'bg-warn-fill text-warn' : 'bg-fill text-ink-2'">
-            {{ state?.optionsPlusRunning ? "Running" : "Off" }}
+            {{ state?.optionsPlusRunning ? "Running" : "Not running" }}
           </span>
         </SettingRow>
       </div>
@@ -51,10 +56,29 @@
 </template>
 
 <script setup lang="ts">
-import { PopoverRoot, PopoverTrigger } from "reka-ui";
+import { PhCaretDown, PhCopy, PhInfo, PhPower } from "@phosphor-icons/vue";
+import { PopoverAnchor, PopoverRoot, PopoverTrigger } from "reka-ui";
 import type { DeviceState } from "~/composables/useAgent";
+import type { MenuEntry } from "~/utils/menu";
 
-defineProps<{ device: DeviceState }>();
+const { device } = defineProps<{ device: DeviceState }>();
 const { state, attempt } = useAgent();
 const open = ref(false);
+const trigger = useTemplateRef("trigger");
+
+const menu = computed<MenuEntry[]>(() => {
+  const startAtLogin = state.value?.startAtLogin ?? true;
+  return [
+    { label: "Mouse details", icon: PhInfo, select: () => (open.value = true) },
+    { label: "Copy firmware version", icon: PhCopy, select: () => copyText(device.firmware, "firmware version") },
+    { label: "Copy product ID", icon: PhCopy, select: () => copyText(device.productId, "product ID") },
+    "separator",
+    {
+      label: "Start at sign-in",
+      icon: PhPower,
+      checked: startAtLogin,
+      select: () => attempt("setStartAtLogin", { enabled: !startAtLogin }, "Couldn't change start at sign-in"),
+    },
+  ];
+});
 </script>

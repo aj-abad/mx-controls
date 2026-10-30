@@ -7,6 +7,7 @@
         description="How hard you press the panel before it clicks."
         :min="device.forceButton.min"
         :max="device.forceButton.max"
+        :default-value="device.forceButton.default"
         :format="forceLabel"
         @commit="(value) => attempt('setForce', { force: value }, 'Couldn\'t change the press force')" />
     </section>
@@ -15,7 +16,7 @@
       <SettingRow
         label="Haptic feedback"
         label-for="haptics"
-        description="The mouse taps your thumb when a gesture fires, and for effects played here.">
+        description="Taps your thumb when a gesture runs.">
         <UiSwitch id="haptics" v-model="enabled" @update:model-value="saveLevel" />
       </SettingRow>
       <UiSlider
@@ -35,7 +36,7 @@
           class="flex items-center gap-2.5 rounded-xl bg-field px-3 py-2.5 text-left text-sm hover:bg-fill disabled:opacity-40"
           @click="attempt('playHaptic', { waveform }, 'Couldn\'t play the effect')">
           <span class="grid size-7 shrink-0 place-items-center rounded-full bg-ink text-white">
-            <IconPlay class="size-3" />
+            <PhPlay weight="fill" class="size-3" />
           </span>
           {{ humanize(waveform) }}
         </button>
@@ -45,6 +46,7 @@
 </template>
 
 <script setup lang="ts">
+import { PhPlay } from "@phosphor-icons/vue";
 import type { DeviceState } from "~/composables/useAgent";
 
 const { device } = defineProps<{ device: DeviceState }>();
@@ -67,7 +69,7 @@ function forceLabel(value: number) {
   const range = device.forceButton;
   if (!range) return `${value}`;
   const share = Math.round(((value - range.min) / (range.max - range.min)) * 100);
-  return value === range.default ? `${share}% (default)` : `${share}%`;
+  return `${share}%`;
 }
 
 const humanize = (name: string) =>

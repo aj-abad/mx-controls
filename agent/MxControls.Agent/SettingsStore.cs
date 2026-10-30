@@ -5,7 +5,9 @@ using MxControls.Actions;
 namespace MxControls.Agent;
 
 /// <summary>A named set of button bindings and thumb wheel settings; one is active at a time.</summary>
-public sealed record Profile(string Id, string Name, IReadOnlyList<ButtonBinding>? Bindings = null, ThumbWheelSettings? ThumbWheel = null)
+/// <param name="Icon">A Phosphor icon name the app draws for the profile, or null for its initial.</param>
+public sealed record Profile(
+    string Id, string Name, IReadOnlyList<ButtonBinding>? Bindings = null, ThumbWheelSettings? ThumbWheel = null, string? Icon = null)
 {
     public const string DefaultId = "default";
     public static readonly Profile Default = new(DefaultId, "Default", []);

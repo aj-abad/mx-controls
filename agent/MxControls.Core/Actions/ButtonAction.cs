@@ -10,7 +10,10 @@ namespace MxControls.Actions;
 /// and <c>none</c> does nothing.
 /// </summary>
 /// <param name="Keys"><c>KeyboardEvent.code</c> names in press order, modifiers first.</param>
-/// <param name="Repeat">For <c>press</c> and <c>system</c>: repeat while held, after <see cref="ButtonEngine.RepeatDelay"/>.</param>
+/// <param name="Repeat">
+/// For <c>press</c> and <c>system</c>: repeat while held, after <see cref="ButtonEngine.RepeatDelay"/>. In a gesture
+/// direction, repeat instead for every <see cref="GestureTracker.DefaultRepeatStepMm"/> the movement keeps going.
+/// </param>
 /// <param name="Mouse">For <c>click</c>: one of <see cref="MouseButtons"/>.</param>
 public sealed record ButtonAction(
     string Type, IReadOnlyList<string>? Keys = null, string? System = null, bool Repeat = false, string? Mouse = null)
