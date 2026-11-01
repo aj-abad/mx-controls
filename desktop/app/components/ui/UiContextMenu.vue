@@ -12,6 +12,7 @@
         :collision-padding="8"
         class="z-50 min-w-48 origin-(--reka-context-menu-content-transform-origin) rounded-xl bg-field p-1 shadow-lg ring-1 ring-line data-[state=closed]:animate-menu-out data-[state=open]:animate-menu-in"
         @close-auto-focus.prevent>
+        <UiScrollArea class="max-h-[calc(var(--reka-context-menu-content-available-height,100dvh)-0.5rem)]" :viewport-attrs="{ tabindex: -1 }">
         <template v-for="(entry, i) in items" :key="i">
           <ContextMenuSeparator v-if="entry === 'separator'" class="mx-2 my-1 h-px bg-line" />
           <ContextMenuItem
@@ -22,9 +23,11 @@
             @select="run(entry)">
             <component :is="entry.icon ?? 'span'" class="size-4 shrink-0" :class="!entry.danger && 'text-ink-2'" />
             <span class="flex-1 truncate">{{ entry.label }}</span>
+            <span v-if="entry.shortcut" class="ml-4 text-xs text-ink-3">{{ entry.shortcut }}</span>
             <PhCheck v-if="entry.checked" class="size-4 shrink-0" />
           </ContextMenuItem>
         </template>
+        </UiScrollArea>
       </ContextMenuContent>
     </ContextMenuPortal>
   </ContextMenuRoot>

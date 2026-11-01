@@ -20,8 +20,9 @@
         <UiSwitch id="haptics" v-model="enabled" @update:model-value="saveLevel" />
       </SettingRow>
       <UiSlider
-        v-if="enabled"
         v-model="level"
+        :disabled="!enabled"
+        :class="!enabled && 'opacity-40'"
         label="Strength"
         :min="1"
         :max="100"

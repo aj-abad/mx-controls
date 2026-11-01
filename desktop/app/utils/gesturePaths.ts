@@ -124,7 +124,7 @@ export function addPath(preset: GesturePreset, path: Direction[]): GesturePreset
   return { ...preset, [first]: grow(preset[first], rest, 1) };
 }
 
-/** A step that runs once, on release: a held key becomes a macro that taps it, and repeating stops. */
+/** A step that runs once, on release: held keys become an inline shortcut, and repeating stops. */
 export const tapOnly = (step: GestureStep): GestureStep =>
   step.type === "hold" || step.repeat ? { ...step, type: step.type === "hold" ? "press" : step.type, repeat: false } : step;
 
@@ -170,7 +170,7 @@ export function countsText(preset: GesturePreset) {
   return parts.filter(Boolean).join(" · ") || "No moves";
 }
 
-/** Whether the agent would take the action: a macro or key needs its keys. */
+/** Whether the agent would take the action: a shortcut or held keys need a combination. */
 export const complete = (action: ButtonAction) => (action.type === "press" || action.type === "hold" ? !!action.keys?.length : true);
 
 // The agent sends back nulls and `repeat: false` that the editors leave out, so compare without them.

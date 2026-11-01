@@ -3,19 +3,27 @@
 
 use serde_json::{json, Value};
 use std::collections::HashMap;
+#[cfg(not(feature = "ui-tests"))]
 use std::path::PathBuf;
+#[cfg(not(feature = "ui-tests"))]
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(not(feature = "ui-tests"))]
+use std::time::Instant;
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot, Mutex};
 
-const PIPE_NAME: &str = "mx-controls-agent";
+#[cfg(not(feature = "ui-tests"))]
+fn pipe_name() -> String { "mx-controls-agent".into() }
+#[cfg(feature = "ui-tests")]
+fn pipe_name() -> String { crate::ui_test::pipe_name() }
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const RECONNECT_DELAY: Duration = Duration::from_millis(500);
 /// Time for a starting agent to open its pipe before another launch.
+#[cfg(not(feature = "ui-tests"))]
 const RELAUNCH_DELAY: Duration = Duration::from_secs(5);
 
 type Reply = Result<Value, String>;
@@ -70,10 +78,12 @@ pub async fn run(app: AppHandle, agent: Arc<Agent>) {
     {
         eprintln!("MX Controls: couldn't unpack the agent: {error}");
     }
+    #[cfg(not(feature = "ui-tests"))]
     let mut launched: Option<Instant> = None;
     loop {
         match connect().await {
             Ok(stream) => serve(&app, &agent, stream).await,
+            #[cfg(not(feature = "ui-tests"))]
             Err(_) if launched.is_none_or(|at| at.elapsed() >= RELAUNCH_DELAY) => {
                 launched = Some(Instant::now());
                 launch_agent();
@@ -138,17 +148,18 @@ where
 
 #[cfg(windows)]
 async fn connect() -> std::io::Result<tokio::net::windows::named_pipe::NamedPipeClient> {
-    tokio::net::windows::named_pipe::ClientOptions::new().open(format!(r"\\.\pipe\{PIPE_NAME}"))
+    tokio::net::windows::named_pipe::ClientOptions::new().open(format!(r"\\.\pipe\{}", pipe_name()))
 }
 
 #[cfg(unix)]
 async fn connect() -> std::io::Result<tokio::net::UnixStream> {
     // .NET's NamedPipeServerStream listens on this socket in the temp folder.
-    tokio::net::UnixStream::connect(std::env::temp_dir().join(format!("CoreFxPipe_{PIPE_NAME}"))).await
+    tokio::net::UnixStream::connect(std::env::temp_dir().join(format!("CoreFxPipe_{}", pipe_name()))).await
 }
 
 /// `MX_AGENT_PATH`, the agent a portable build unpacked, or the `mx-agent` sidecar, which Tauri places beside the
 /// app in a bundle and in development.
+#[cfg(not(feature = "ui-tests"))]
 fn agent_path() -> Option<PathBuf> {
     if let Ok(path) = std::env::var("MX_AGENT_PATH") {
         return Some(path.into());
@@ -166,6 +177,7 @@ fn agent_path() -> Option<PathBuf> {
 }
 
 /// Starts the agent detached, so it keeps the mappings working after the window closes.
+#[cfg(not(feature = "ui-tests"))]
 fn launch_agent() {
     let Some(path) = agent_path() else {
         eprintln!("MX Controls: no mx-agent beside the app; run `pnpm agent` or set MX_AGENT_PATH");
@@ -180,6 +192,7 @@ fn launch_agent() {
 }
 
 /// Keeps the agent, a console program, from opening a console window.
+#[cfg(not(feature = "ui-tests"))]
 pub fn hide_window(command: &mut Command) {
     #[cfg(windows)]
     {

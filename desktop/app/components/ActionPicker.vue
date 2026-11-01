@@ -23,7 +23,8 @@
             placeholder="Search actions"
             :aria-label="`${label}: search actions`"
             class="h-10 shrink-0 border-b border-line bg-transparent px-3 text-sm outline-none! placeholder:text-ink-3" />
-          <ListboxContent class="min-h-0 overflow-y-auto p-1">
+          <UiScrollArea class="max-h-[calc(min(22rem,var(--reka-popover-content-available-height))-2.5rem)]" :viewport-attrs="{ tabindex: -1 }">
+          <ListboxContent class="p-1">
             <ListboxGroup v-for="group in groups" :key="group.name">
               <ListboxGroupLabel class="px-3 pt-2 pb-1 text-xs font-medium text-ink-3">{{ group.name }}</ListboxGroupLabel>
               <ListboxItem
@@ -41,6 +42,7 @@
             </ListboxGroup>
             <p v-if="!groups.length" class="px-3 py-6 text-center text-sm text-ink-3">No actions match “{{ query }}”</p>
           </ListboxContent>
+          </UiScrollArea>
         </ListboxRoot>
       </PopoverContent>
     </PopoverPortal>
@@ -62,12 +64,12 @@ import {
   PopoverRoot,
   PopoverTrigger,
 } from "reka-ui";
-import type { ButtonAction, Macro } from "~/composables/useAgent";
+import type { ButtonAction } from "~/composables/useAgent";
 
 /**
  * Picks an action by what it does: a preset such as "Copy", a saved macro as "macro:<id>", or one of the custom
- * choices: "newMacro", "hold" (a key), "none", and "shortcut" for keys recorded before macros. `modelValue` is the
- * ID of the choice shown.
+ * choices: "shortcut" (an inline combination), "hold" (keys held down), and "none".
+ * `modelValue` is the ID of the choice shown.
  */
 const { modelValue, label, allowHold = true, defaultLabel } = defineProps<{
   modelValue: string;
@@ -104,14 +106,10 @@ function hintFor(action: ButtonAction) {
   return action.keys.map((key) => SHORT_KEYS[key] ?? keyLabel(key)).join(" ");
 }
 
-// A macro plays back what it was given; a key stays down as long as the button.
-const CUSTOM: Choice[] = [
-  { id: "newMacro", label: "New macro…", keywords: "custom keys press record keyboard shortcut" },
-  { id: "hold", label: "Key…", keywords: "custom keys modifier hold down while held" },
-  { id: "none", label: "Do nothing", keywords: "off disable none" },
+const KEYBOARD: Choice[] = [
+  { id: "shortcut", label: "Keyboard shortcut…", hint: "This action", keywords: "custom keys press record combination chord once" },
+  { id: "hold", label: "Hold keys…", keywords: "custom keyboard modifier down while held" },
 ];
-// Keys recorded straight onto an action, from before macros; only shown for an action that still has them.
-const RECORDED: Choice = { id: "shortcut", label: "Recorded keys…", keywords: "custom keys" };
 
 const { state } = useAgent();
 
@@ -119,6 +117,7 @@ const choices = computed(() => {
   const all: (Choice & { group: string })[] = defaultLabel
     ? [{ id: "default", group: "This button", label: defaultLabel, hint: "default", keywords: "reset own" }]
     : [];
+  for (const choice of KEYBOARD) if (allowHold || choice.id !== "hold") all.push({ ...choice, group: "Keyboard" });
   all.push(...PRESETS.map((preset) => ({
     id: preset.id,
     group: preset.group,
@@ -127,9 +126,8 @@ const choices = computed(() => {
     keywords: preset.keywords,
   })));
   for (const macro of state.value?.macros ?? [])
-    all.push({ id: `macro:${macro.id}`, group: "Macros", label: macro.name, hint: macroHint(macro), keywords: "macro" });
-  for (const choice of CUSTOM) if (allowHold || choice.id !== "hold") all.push({ ...choice, group: "Custom" });
-  if (modelValue === "shortcut") all.push({ ...RECORDED, group: "Custom" });
+    all.push({ id: `macro:${macro.id}`, group: "Shared macros", label: macro.name, hint: "Shared", keywords: "macro saved sequence" });
+  all.push({ id: "none", group: "Other", label: "Do nothing", keywords: "off disable none" });
   return all;
 });
 
@@ -153,16 +151,10 @@ const current = computed(() => {
   return { label: choice?.label.replace(/…$/, "") ?? "Choose an action", hint: choice?.hint };
 });
 
-/** A one-step macro shows its keys, like a built-in action does. */
-function macroHint(macro: Macro) {
-  const [only] = macro.steps;
-  return macro.steps.length === 1 && only?.type === "keys" && only.keys ? hintFor({ type: "press", keys: only.keys }) : undefined;
-}
-
 let recordAfterClose = false;
 
 function pick(value: string) {
-  recordAfterClose = value === "shortcut" || value === "hold" || value === "newMacro";
+  recordAfterClose = value === "shortcut" || value === "hold";
   emit("update:modelValue", value);
   open.value = false;
 }

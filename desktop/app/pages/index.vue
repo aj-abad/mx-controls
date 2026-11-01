@@ -128,7 +128,7 @@
           </header>
         </UiContextMenu>
 
-        <div class="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 pb-6">
+        <UiScrollArea class="min-h-0 flex-1" content-class="flex flex-col gap-6 px-6 pb-6">
           <WheelSettings v-if="selected.control.id === 'wheel'" :device="device" />
           <ThumbWheelSettings v-else-if="selected.control.id === 'thumbwheel'" :device="device" />
           <template v-else-if="selected.button">
@@ -139,7 +139,7 @@
               @open-presets="(id) => goTo('gestures', id)" />
             <HapticSettings v-if="selected.control.id === 'haptic'" :device="device" />
           </template>
-        </div>
+        </UiScrollArea>
 
         <footer
           class="flex h-14 shrink-0 items-center justify-between border-t border-line pr-3 pl-6">
@@ -161,6 +161,7 @@
     </AnimatePresence>
 
     <p class="absolute bottom-0 left-0 h-5 text-sm text-ink-3" aria-live="polite">
+      <span v-if="!flashed" class="text-xs">Pointer speed, wheel feel and haptics apply to every profile.</span>
       <AnimatePresence>
         <motion.span
           v-if="flashed"
@@ -361,15 +362,16 @@ const isMac = navigator.userAgent.includes("Mac");
 // Ctrl+Z puts back the last change, except in a field, where it undoes typing.
 function onKey(event: KeyboardEvent) {
   if (event.defaultPrevented) return;
-  if (event.key === "Escape" && selectedId.value && page.value === "buttons") {
+  if (page.value === "macros") return;
+  if (event.key === "Escape" && selectedId.value && page.value === "profiles") {
     if (!document.querySelector("[data-dismissable-layer]")) selectedId.value = null;
     return;
   }
   const command = isMac ? event.metaKey : event.ctrlKey;
-  if (event.code !== "KeyZ" || !command || event.shiftKey || event.altKey) return;
+  if (!command || event.altKey || !["KeyZ", "KeyY"].includes(event.code)) return;
   if ((event.target as HTMLElement | null)?.closest("input, textarea, [contenteditable]")) return;
   event.preventDefault();
-  void undoLast();
+  void (event.shiftKey || event.code === "KeyY" ? redoLast() : undoLast());
 }
 
 // The changes remembered belong to one profile on one mouse; putting them back elsewhere would change the wrong one.
@@ -469,7 +471,7 @@ async function resetWith(
   before: Record<string, unknown>,
 ) {
   if (!(await attempt(method, params, `Couldn't reset the ${label.toLowerCase()}`))) return;
-  rememberUndo(() => attempt(method, before, `Couldn't put the ${label.toLowerCase()} back`));
+  rememberUndo(() => attempt(method, before, `Couldn't put the ${label.toLowerCase()} back`), () => attempt(method, params, `Couldn't reset the ${label.toLowerCase()}`), "Reset control");
 }
 
 function menuFor(item: Item): MenuEntry[] {
@@ -508,7 +510,7 @@ async function apply(binding: ButtonBinding | null, item: Item = selected.value!
   const { button } = item;
   const before = bindingFor(button!.id) ?? null;
   if (!(await setBinding(button!.id, binding))) return false;
-  rememberUndo(() => setBinding(button!.id, before));
+  rememberUndo(() => setBinding(button!.id, before), () => setBinding(button!.id, binding), "Edit button");
   return true;
 }
 </script>

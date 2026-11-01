@@ -59,19 +59,20 @@ Moves are only edited as presets, on a Gesture presets page. A button picks one,
 - Migration: each distinct gesture already in `settings.json` becomes a preset named after its button, such as "Gesture button (Work)". Gestures that match a built-in point at it instead.
 - The settings test becomes "editing a preset changes every binding that uses it", in place of "applying one copies it".
 
-## Key and Macro
+## Keyboard shortcuts and macros
 
-Two of the custom actions are renamed. The agent's `type` values stay as they are for now.
+Keyboard shortcuts and shared macros are distinct. A shortcut is one key combination stored inline on the action; a macro is a named sequence in the shared library. The agent's existing type values express this directly.
 
-| Today | New name | `type` | What it does |
-| --- | --- | --- | --- |
-| Hold keys… | Key… | `hold` | Holds its keys down for as long as the button is held. |
-| Keyboard shortcut… | Macro… | `press` | Sends its keys once, or repeatedly while held. Today a macro is one chord; a full macro editor comes later. |
+| Choice | `type` | What it does |
+| --- | --- | --- |
+| Keyboard shortcut… | `press` | Taps one key combination. Stored only on the assigned action. |
+| Hold keys… | `hold` | Keeps its keys down until the button is released. |
+| A saved shared macro | `macro` | Plays the named sequence. Editing it updates every assignment. |
 
-- **The built-in actions stay as they are.** Copy, Paste and the rest are still listed by name, even though they're macros underneath.
-- **A key that can't stay down becomes a macro.** A double click or a move makes the click wait or run on release. The row then changes to Macro and says so: "The key became a macro that taps Left Shift once."
-- **Summaries.** A key reads "Left Shift key", and a macro shows its keys, "Ctrl + C", as now.
-- **Renaming `type` waits for the macro editor.** When a macro grows into steps, `press` becomes `macro` with a list of steps, and the settings are migrated in the same change. Renaming it now would mean migrating twice.
+- **Built-in actions** such as Copy and Paste remain named inline shortcuts.
+- **Held keys that can no longer stay down** become inline shortcuts that tap the same combination once.
+- **Repeat** is an assignment option: eligible gesture directions repeat every 4 mm of continued movement; eligible button actions can repeat while held. Sequence steps and double/triple clicks run once on release.
+- **Settings loading** preserves inline shortcuts. It does not convert them into shared macros. Existing shared macros are retained; Use as shortcut explicitly copies a one-combination macro into the current assignment.
 
 ## Gestures and Macros pages
 
@@ -87,6 +88,6 @@ A macro is named and kept in the agent's settings, like a gesture preset, and ev
 - `Macro(Id, Name, Steps)` in `AgentSettings.Macros`, with `setMacro` and `deleteMacro`, and `macros` and `macroUses` in the state. A step is keys, text, a wait or a mouse click, and a macro waits at most one second in all.
 - An action of type `macro` names one: `{ "type": "macro", "macro": "snap", "repeat": true }`. Repeating stays on the action, since it belongs to the button. It works in buttons, gesture steps, double and triple clicks and the thumb wheel.
 - The engines look macros up when they run them, so editing one takes effect at once. A deleted macro does nothing until undo puts it back with the same ID.
-- Built-in actions such as Copy stay as they are. They're listed first in the picker, then saved macros, then "New macro…", which records keys and saves them as a macro named after them ("Ctrl + Shift + V"), ready to rename.
+- The picker groups Keyboard shortcut and Hold keys under Keyboard, and saved macros under Shared macros. New shared sequences are created in the Macros library.
 - A key (`hold`) stays a plain action: it's one key held with the button, not something to share.
-- Migration: each `press` action that isn't a built-in one becomes a macro, and the same keys share one. This is the `press` → `macro` rename the Key and Macro section put off until macros grew.
+- Inline `press` actions remain inline across settings reloads. Identical combinations assigned to different actions remain independently editable.

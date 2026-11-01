@@ -10,8 +10,8 @@
       <SelectContent
         position="popper"
         :side-offset="4"
-        class="z-50 max-h-72 min-w-(--reka-select-trigger-width) origin-(--reka-select-content-transform-origin) overflow-hidden rounded-xl bg-field p-1 shadow-lg ring-1 ring-line data-[state=closed]:animate-menu-out data-[state=open]:animate-menu-in">
-        <SelectViewport>
+        class="z-50 min-w-(--reka-select-trigger-width) origin-(--reka-select-content-transform-origin) overflow-hidden rounded-xl bg-field p-1 shadow-lg ring-1 ring-line data-[state=closed]:animate-menu-out data-[state=open]:animate-menu-in">
+        <UiScrollArea select-viewport :viewport-attrs="{ tabindex: -1 }" class="max-h-[calc(min(18rem,var(--reka-select-content-available-height))-0.5rem)]">
           <SelectItem
             v-for="option in options"
             :key="option.value"
@@ -22,7 +22,7 @@
               <PhCheck class="size-4" />
             </SelectItemIndicator>
           </SelectItem>
-        </SelectViewport>
+        </UiScrollArea>
       </SelectContent>
     </SelectPortal>
   </SelectRoot>
@@ -39,7 +39,6 @@ import {
   SelectRoot,
   SelectTrigger,
   SelectValue,
-  SelectViewport,
 } from "reka-ui";
 
 /** The accessible name; the trigger shows the chosen option instead. */

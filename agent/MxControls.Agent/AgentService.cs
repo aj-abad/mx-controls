@@ -220,6 +220,11 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
         // WIRELESS_DEVICE_STATUS asks for reconfiguration after the mouse wakes or reconnects to this host.
         if (device.TryGetIndex(FeatureIds.WirelessDeviceStatus, out var status) && e.FeatureIndex == status && e.Payload[1] == 1)
         {
+            // At once rather than queued with the re-diversion, so held keys don't stay down behind other work.
+            _engine?.ReleaseAll();
+            foreach (var cid in _held)
+                Published?.Invoke("button", new ButtonEvent(ButtonId(cid), cid, false));
+            _held = [];
             _ = Task.Run(ReapplyAfterReconnectAsync);
             return;
         }

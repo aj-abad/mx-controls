@@ -8,23 +8,23 @@
       <!-- Anchored by hand: inside the context menu and tooltip, a nested anchor would anchor those instead. -->
       <PopoverAnchor as="template" :reference="chips[profile.id]" />
       <UiContextMenu :items="menuFor(profile)">
-        <UiTooltip :text="profile.name" :disabled="profile.id === activeId">
+        <UiTooltip :text="`${profile.name} · double-click to rename`">
           <button
             :ref="(el) => (chips[profile.id] = (el as HTMLElement | null) ?? undefined)"
             type="button"
             :aria-label="profile.name"
             :aria-pressed="profile.id === activeId"
-            class="flex h-8 shrink-0 items-center gap-1.5 rounded-full transition-colors duration-150"
+            class="flex h-8 shrink-0 items-center gap-1.5 rounded-lg transition-colors duration-150"
             :class="
               profile.id === activeId
-                ? 'max-w-48 bg-ink pr-3.5 pl-2 text-on-ink'
-                : 'w-8 justify-center text-ink-2 hover:bg-fill hover:text-ink data-[state=open]:bg-fill'
+                ? 'max-w-40 bg-accent/12 pr-3.5 pl-2.5 text-ink ring-1 ring-accent/25 ring-inset'
+                : 'max-w-40 pr-3.5 pl-2.5 text-ink-2 hover:bg-fill hover:text-ink data-[state=open]:bg-fill'
             "
             @click="choose(profile)"
             @dblclick="editing = profile.id"
             @keydown.f2.prevent="editing = profile.id">
             <ProfileAvatar :profile="profile" class="size-4.5" />
-            <span v-if="profile.id === activeId" class="truncate text-sm font-medium">{{ profile.name }}</span>
+            <span class="truncate text-sm font-medium">{{ profile.name }}</span>
           </button>
         </UiTooltip>
       </UiContextMenu>
@@ -32,6 +32,17 @@
         <ProfileEditor :profile="profile" />
       </UiPopoverContent>
     </PopoverRoot>
+
+    <UiTooltip text="Edit active profile">
+      <button
+        v-if="active"
+        type="button"
+        aria-label="Edit active profile"
+        class="grid size-8 shrink-0 place-items-center rounded-full text-ink-3 hover:bg-fill hover:text-ink"
+        @click="editing = active.id">
+        <PhPencilSimple class="size-3.5" />
+      </button>
+    </UiTooltip>
 
     <UiContextMenu :items="addMenu">
       <UiTooltip text="New profile">

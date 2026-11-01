@@ -1,5 +1,6 @@
 using MxControls.Actions;
 using MxControls.Agent;
+using System.Text.Json;
 
 namespace MxControls.Tests;
 
@@ -86,29 +87,40 @@ public class MacroTests
     }
 
     [Fact]
-    public void RecordedKeysBecomeSharedMacrosAndBuiltInActionsStay()
+    public void InlineShortcutsSurviveSettingsRoundTripWithoutBecomingMacros()
     {
         var custom = new ButtonAction(ActionTypes.Press, ["ShiftLeft", "Delete"], Repeat: true);
         var copy = new ButtonAction(ActionTypes.Press, [OperatingSystem.IsMacOS() ? "MetaLeft" : "ControlLeft", "KeyC"]);
         var work = new Profile("work", "Work", [new ButtonBinding("middle", ButtonBinding.ActionMode, custom, DoubleClick: copy)],
             new ThumbWheelSettings(ThumbWheelSettings.ActionsMode, Left: custom with { Repeat = false }));
         var preset = new GesturePreset("p", "P", GestureStep.Of(custom with { Repeat = false }), GestureStep.Nothing, GestureStep.Nothing, GestureStep.Nothing);
-        var settings = new AgentSettings(Profiles: [work], GesturePresets: [preset]).Migrated();
+        var before = new AgentSettings(Profiles: [work], GesturePresets: [preset]);
+        var json = JsonSerializer.Serialize(before, Protocol.Json);
+        var settings = JsonSerializer.Deserialize<AgentSettings>(json, Protocol.Json)!.Migrated();
 
-        var macro = Assert.Single(settings.Macros!);
-        Assert.Equal("Shift + Delete", macro.Name);
+        Assert.Empty(settings.Macros ?? []);
         var binding = settings.AllBindings[0];
-        Assert.Equal(new ButtonAction(ActionTypes.Macro, Repeat: true, Macro: macro.Id), binding.Action);
+        Assert.Equal(ActionTypes.Press, binding.Action!.Type);
+        Assert.Equal(custom.Keys, binding.Action.Keys);
+        Assert.True(binding.Action.Repeat);
         Assert.Equal(copy.Keys, binding.DoubleClick!.Keys);
-        Assert.Equal(macro.Id, settings.Active.ThumbWheel!.Left!.Macro);
-        Assert.Equal(macro.Id, settings.GesturePresets![0].Up.Macro);
+        Assert.Equal(ActionTypes.Press, settings.Active.ThumbWheel!.Left!.Type);
+        Assert.Equal(custom.Keys, settings.Active.ThumbWheel.Left.Keys);
+        Assert.False(settings.Active.ThumbWheel.Left.Repeat);
+        Assert.Equal(ActionTypes.Press, settings.GesturePresets![0].Up.Type);
+        Assert.Equal(custom.Keys, settings.GesturePresets[0].Up.Keys);
         Assert.Same(settings, settings.Migrated());
     }
 
     [Fact]
-    public void MacroLabelsReadLikeTheKeys()
+    public void ExistingSharedMacrosStaySharedEvenWithOnlyOneCombination()
     {
-        Assert.Equal("Shift + 5", MacroMigration.Label(["ShiftLeft", "Digit5"]));
-        Assert.Equal("F5", MacroMigration.Label(["F5"]));
+        var macro = new Macro("shared", "Shared shortcut", [Keys("ShiftLeft", "Delete")]);
+        var profile = new Profile("work", "Work", [new ButtonBinding("middle", ButtonBinding.ActionMode, Run(macro.Id))]);
+        var settings = new AgentSettings(Profiles: [profile], Macros: [macro]);
+        Assert.Same(settings, settings.Migrated());
+        Assert.Same(macro, Assert.Single(settings.Macros!));
+        Assert.Equal(ActionTypes.Macro, settings.AllBindings[0].Action!.Type);
+        Assert.Equal(macro.Id, settings.AllBindings[0].Action!.Macro);
     }
 }

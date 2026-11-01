@@ -39,27 +39,21 @@ export function useMacros() {
   const remove = (macro: Macro) => attempt("deleteMacro", { id: macro.id }, `Couldn't delete “${macro.name}”`);
 
   /** Saves a macro, new or changed, and remembers how to put back what was there. */
-  async function change(macro: Macro) {
+  async function change(macro: Macro, history = true) {
     const before = find(macro.id);
     if (!(await save(macro))) return false;
-    rememberUndo(() => (before ? save(before) : remove(macro)));
+    if (history) rememberUndo(() => (before ? save(before) : remove(macro)), () => save(macro), before ? "Edit macro" : "Create macro");
     return true;
   }
 
   /** Deletes a macro; what ran it does nothing until undo puts it back with the same ID. */
-  async function discard(macro: Macro) {
+  async function discard(macro: Macro, history = true) {
     if (!(await remove(macro))) return false;
-    rememberUndo(() => save(macro));
+    if (history) rememberUndo(() => save(macro), () => remove(macro), "Delete macro");
     return true;
   }
 
   const newId = () => Math.random().toString(36).slice(2, 10);
 
-  /** Saves recorded keys as a macro named after them, for "New macro…" in an action picker; returns its ID. */
-  async function createFromKeys(keys: string[]) {
-    const macro: Macro = { id: newId(), name: chordLabel(keys), steps: [{ type: "keys", keys }] };
-    return (await change(macro)) ? macro.id : null;
-  }
-
-  return { macros, find, usedBy, change, discard, createFromKeys, newId };
+  return { macros, find, usedBy, change, discard, newId };
 }

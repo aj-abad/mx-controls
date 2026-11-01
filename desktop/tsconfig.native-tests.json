@@ -1,0 +1,5 @@
+{
+  "extends": "./.nuxt/tsconfig.app.json",
+  "compilerOptions": { "noEmit": true, "types": ["node"] },
+  "include": [".nuxt/nuxt.d.ts", "playwright.native.config.ts", "tests/native/**/*.ts"]
+}

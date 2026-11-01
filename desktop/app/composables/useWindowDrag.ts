@@ -1,10 +1,10 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 /** Anything that reacts to a press; the window moves only when none of these is under the pointer. */
-const INTERACTIVE = "button, a, input, textarea, select, label, [role], [contenteditable], [tabindex], [data-dismissable-layer]";
+const INTERACTIVE = "button, a, input, textarea, select, label, [role], [contenteditable], [tabindex], [data-dismissable-layer], .ui-scrollbar";
 
 function onMouseDown(event: MouseEvent) {
-  if (event.button !== 0) return;
+  if (event.button !== 0 || event.defaultPrevented) return;
   const target = event.target as Element;
   if (target.closest(INTERACTIVE)) return;
   // A press on a scrollbar lands on the element that scrolls.

@@ -3,7 +3,7 @@
     :type="type"
     :disabled="disabled"
     :class="[
-      'inline-flex items-center justify-center gap-2 rounded-full font-medium transition-[color,background-color,scale] duration-150 ease-out enabled:active:scale-[0.97] disabled:cursor-default disabled:opacity-40',
+      'inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-[color,background-color,scale] duration-150 ease-out enabled:active:scale-[0.97] disabled:cursor-default disabled:opacity-40',
       size === 'sm' ? 'h-8 px-3.5 text-sm' : 'h-10 px-5 text-sm',
       VARIANTS[variant],
     ]">
@@ -25,7 +25,7 @@ const {
 }>();
 
 const VARIANTS = {
-  primary: "bg-ink text-on-ink enabled:hover:bg-ink-2",
+  primary: "bg-action text-white enabled:hover:brightness-90",
   secondary: "bg-field text-ink ring-1 ring-line ring-inset enabled:hover:bg-fill",
   ghost: "text-ink-2 enabled:hover:bg-fill",
 };

@@ -8,6 +8,7 @@ export interface MenuAction {
   disabled?: boolean;
   /** Shows a check, for an item that toggles or names the current choice. */
   checked?: boolean;
+  shortcut?: string;
   select: () => void;
 }
 

@@ -96,4 +96,22 @@ public class ActionRunnerTests
         runner.EndAll();
         Assert.Equal(["down ShiftLeft", "up ShiftLeft", "down ControlLeft", "up ControlLeft"], platform.Log);
     }
+
+    [Fact]
+    public async Task EndAllLetsGoOfEveryControlAndStopsRepeats()
+    {
+        var (runner, platform, gate) = Create();
+        lock (gate)
+        {
+            runner.Begin(Button, new ButtonAction(ActionTypes.Hold, ["ShiftLeft"]));
+            runner.Begin(0x0053, new ButtonAction(ActionTypes.Click, Mouse: MouseButtons.Back));
+            runner.Begin(0x0056, new ButtonAction(ActionTypes.Press, ["MediaPlayPause"], Repeat: true));
+            runner.EndAll();
+        }
+        Assert.Contains("up ShiftLeft", platform.Log);
+        Assert.Contains("mouse up back", platform.Log);
+
+        await Task.Delay(450);
+        Assert.Equal(1, platform.Log.Count(line => line == "down MediaPlayPause"));
+    }
 }

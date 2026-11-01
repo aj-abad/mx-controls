@@ -79,10 +79,10 @@ public sealed record AgentSettings(
     {
         var legacy = Bindings ?? Mappings?.Select(m => ButtonBinding.Hold(m.Button, m.Key)).ToArray();
         if (legacy is null)
-            return MacroMigration.Migrated(PresetLibrary.Migrated(this));
+            return PresetLibrary.Migrated(this);
         var profiles = Profiles is { Count: > 0 } existing ? existing : [Profile.Default with { Bindings = legacy }];
-        return MacroMigration.Migrated(PresetLibrary.Migrated(
-            this with { Bindings = null, Mappings = null, Profiles = profiles, ActiveProfile = ActiveProfile ?? profiles[0].Id }));
+        return PresetLibrary.Migrated(
+            this with { Bindings = null, Mappings = null, Profiles = profiles, ActiveProfile = ActiveProfile ?? profiles[0].Id });
     }
 }
 

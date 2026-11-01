@@ -20,6 +20,7 @@
         :min="min"
         :max="max"
         :step="step"
+        :disabled="disabled"
         :aria-labelledby="labelId"
         class="relative flex h-5 w-full touch-none items-center"
         @update:model-value="(next) => next && (value = next[0]!)"
@@ -37,7 +38,7 @@
           class="block size-4.5 rounded-full bg-white shadow-[0_1px_4px_rgb(0_0_0/0.25)] ring-1 ring-black/10" />
       </SliderRoot>
     </div>
-    <p v-if="description" class="text-sm text-ink-3">{{ description }}</p>
+    <UiScrollArea v-if="description" class="h-10 text-sm text-ink-3">{{ description }}</UiScrollArea>
   </div>
 </template>
 
@@ -50,6 +51,7 @@ const {
   step = 1,
   defaultValue,
   format,
+  disabled = false,
 } = defineProps<{
   label: string;
   description?: string;
@@ -61,6 +63,7 @@ const {
   format?: (value: number) => string;
   /** Label, track and value on one line. */
   inline?: boolean;
+  disabled?: boolean;
 }>();
 const value = defineModel<number>({ required: true });
 /** The value once a drag or key press ends; save here rather than on every move. */

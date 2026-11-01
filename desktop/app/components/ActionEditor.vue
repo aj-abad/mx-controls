@@ -1,36 +1,44 @@
 <template>
-  <div class="flex flex-col gap-2.5">
+  <div class="action-editor flex flex-col gap-2.5">
     <ActionPicker
       :model-value="choice"
       :label="label"
       :allow-hold="allowHold"
       :default-label="defaultLabel"
       @update:model-value="choose"
-      @record="capture?.start()" />
-    <ShortcutCapture
-      v-if="choice === 'newMacro'"
-      ref="capture"
-      :model-value="[]"
-      :label="`${label} new macro`"
-      @update:model-value="saveMacro" />
-    <ShortcutCapture
-      v-else-if="modelValue && (choice === 'shortcut' || choice === 'hold')"
-      ref="capture"
-      :model-value="modelValue.keys"
-      :label="label"
-      @update:model-value="(keys) => update({ keys })" />
-    <button
-      v-if="modelValue?.type === 'macro' && modelValue.macro"
-      type="button"
-      class="self-start text-xs text-ink-3 hover:text-ink"
-      @click="goTo('macros', modelValue.macro)">
-      Edit macro ›
-    </button>
-    <UiCheckbox
-      v-if="modelValue && allowRepeat && (modelValue.type === 'press' || modelValue.type === 'system' || modelValue.type === 'macro')"
-      :model-value="!!modelValue.repeat"
-      :label="repeatLabel"
-      @update:model-value="(repeat) => update({ repeat })" />
+      @record="capture?.start()"
+    />
+    <div class="flex h-10 shrink-0 items-center gap-3">
+      <ShortcutCapture
+        v-if="modelValue && (choice === 'shortcut' || choice === 'hold')"
+        ref="capture"
+        class="min-w-0 flex-1"
+        :model-value="modelValue.keys"
+        :label="label"
+        @update:model-value="(keys) => update({ keys })"
+      />
+      <button
+        v-if="modelValue?.type === 'macro' && modelValue.macro"
+        type="button"
+        class="mr-auto text-xs text-ink-3 hover:text-ink"
+        @click="goTo('macros', modelValue.macro)"
+      >
+        Edit shared macro ›
+      </button>
+      <button v-if="macroKeys" type="button" class="text-xs font-medium text-accent hover:underline" @click="useAsShortcut">
+        Use as shortcut
+      </button>
+    </div>
+    <div class="flex h-8 shrink-0 items-center text-xs text-ink-3">
+      <UiCheckbox
+        v-if="canRepeat"
+        :model-value="!!modelValue?.repeat"
+        :label="repeatLabel"
+        class="text-xs! text-ink-2"
+        @update:model-value="(repeat) => update({ repeat })"
+      />
+      <span v-else class="line-clamp-2">{{ actionHint }}</span>
+    </div>
   </div>
 </template>
 
@@ -66,17 +74,18 @@ const capture = useTemplateRef("capture");
  * doesn't swap the key field for "Copy" mid-edit.
  */
 const custom = ref(false);
-/** Recording the keys of a macro to make, which the action runs once it's saved. */
-const makingMacro = ref(false);
-
 const choice = computed(() => {
-  if (makingMacro.value) return "newMacro";
   if (!modelValue) return "default";
   if (modelValue.type === "macro") return `macro:${modelValue.macro}`;
   const preset = presetFor(modelValue);
   if (preset && !custom.value) return preset.id;
   // A fresh action has no keys and no choice yet; the picker asks for one.
-  if ((modelValue.type === "press" || modelValue.type === "hold") && !modelValue.keys?.length && !custom.value) return "";
+  if (
+    (modelValue.type === "press" || modelValue.type === "hold") &&
+    !modelValue.keys?.length &&
+    !custom.value
+  )
+    return "";
   if (modelValue.type === "hold") return "hold";
   if (modelValue.type === "press") return "shortcut";
   return "none";
@@ -84,26 +93,47 @@ const choice = computed(() => {
 
 function choose(id: string) {
   custom.value = id === "shortcut" || id === "hold";
-  makingMacro.value = id === "newMacro";
   if (id === "default") return emit("default");
-  if (id === "newMacro") return;
   if (id.startsWith("macro:"))
-    return emit("update:modelValue", { type: "macro", macro: id.slice(6), ...(modelValue?.repeat && { repeat: true }) });
-  const keys = modelValue && (modelValue.type === "press" || modelValue.type === "hold") && !presetFor(modelValue) ? modelValue.keys : [];
-  if (id === "shortcut") emit("update:modelValue", { type: "press", keys });
+    return emit("update:modelValue", keepRepeat({
+      type: "macro",
+      macro: id.slice(6),
+    }));
+  const keys =
+    modelValue && (modelValue.type === "press" || modelValue.type === "hold") && !presetFor(modelValue)
+      ? modelValue.keys
+      : [];
+  if (id === "shortcut") emit("update:modelValue", keepRepeat({ type: "press", keys }));
   else if (id === "hold") emit("update:modelValue", { type: "hold", keys });
-  else emit("update:modelValue", presetById(id)?.action ?? NOTHING);
+  else emit("update:modelValue", keepRepeat(presetById(id)?.action ?? NOTHING));
 }
 
-const update = (patch: Partial<ButtonAction>) => modelValue && emit("update:modelValue", { ...modelValue, ...patch });
+const repeatable = (action: ButtonAction) => ["press", "system", "macro"].includes(action.type);
+const canRepeat = computed(() => !!modelValue && allowRepeat && repeatable(modelValue));
+const keepRepeat = (action: ButtonAction): ButtonAction =>
+  allowRepeat && modelValue?.repeat && repeatable(action) ? { ...action, repeat: true } : action;
+const actionHint = computed(() => {
+  if (modelValue?.type === "hold") return "Keys stay down until you release the button.";
+  if (modelValue?.type === "press") return "One key combination, saved only on this action.";
+  if (modelValue?.type === "macro") return "Shared macro. Editing it updates every assignment.";
+  return "";
+});
+
+const update = (patch: Partial<ButtonAction>) =>
+  modelValue && emit("update:modelValue", { ...modelValue, ...patch });
 
 const { goTo } = usePage();
-const macros = useMacros();
+const { state } = useAgent();
+const macroKeys = computed(() => {
+  if (modelValue?.type !== "macro") return null;
+  const steps = state.value?.macros.find((macro) => macro.id === modelValue.macro)?.steps;
+  return steps?.length === 1 && steps[0]?.type === "keys" && steps[0].keys?.length ? steps[0].keys : null;
+});
 
-/** Saves the keys just recorded as a macro named after them, and runs it from here. */
-async function saveMacro(keys: string[]) {
-  const id = await macros.createFromKeys(keys);
-  makingMacro.value = false;
-  if (id) emit("update:modelValue", { type: "macro", macro: id, ...(modelValue?.repeat && { repeat: true }) });
+/** Copies a one-combination macro into this action without changing the shared macro. */
+function useAsShortcut() {
+  if (!macroKeys.value) return;
+  custom.value = true;
+  emit("update:modelValue", keepRepeat({ type: "press", keys: [...macroKeys.value] }));
 }
 </script>

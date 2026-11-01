@@ -10,6 +10,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [features]
 # One portable exe with the agent inside it, for `deploy.cmd`. The installer ships the agent beside the app instead.
 embedded-agent = []
+# Hidden, debug-only shell connected exclusively to a per-run simulated agent.
+ui-tests = []
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

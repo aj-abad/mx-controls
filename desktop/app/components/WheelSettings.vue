@@ -10,9 +10,10 @@
       ">
       <UiSwitch id="ratchet" v-model="ratchet" @update:model-value="save" />
     </SettingRow>
-    <template v-if="ratchet">
+    <div class="flex flex-col gap-6" :class="!ratchet && 'opacity-40'" :inert="!ratchet || undefined">
       <UiSlider
         v-model="autoDisengage"
+        :disabled="!ratchet"
         label="Threshold"
         description="How fast you scroll before the wheel spins freely."
         :default-value="device.smartShift.defaultAutoDisengage"
@@ -22,6 +23,7 @@
       <UiSlider
         v-if="device.smartShift.tunableTorque"
         v-model="torque"
+        :disabled="!ratchet"
         label="Scroll detent"
         description="How firmly the wheel clicks."
         :default-value="device.smartShift.defaultTorque"
@@ -29,7 +31,7 @@
         :max="100"
         :format="(value) => `${value}%`"
         @commit="save" />
-    </template>
+    </div>
   </div>
 </template>
 

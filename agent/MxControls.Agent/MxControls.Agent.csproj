@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <!-- WinExe so the sign-in task doesn't open a console window; output goes to Logs\agent.log. -->
+    <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>MxControls.Agent</RootNamespace>
     <AssemblyName>mx-agent</AssemblyName>

@@ -3,8 +3,8 @@ import type { AgentState, ButtonAction, ButtonBinding, GesturePreset, GestureSte
 const step = (id: string, more: Partial<GestureStep> = {}): GestureStep => ({ ...(presetById(id)!.action as ButtonAction), ...more });
 const NONE: GestureStep = { type: "none" };
 
-/** The agent's built-in presets, as `PresetLibrary.BuiltIn` has them. */
-const BUILT_IN: GesturePreset[] = [
+/** Build lazily: actions describe macros through useAgent, which also imports this preview. */
+const builtInPresets = (): GesturePreset[] => [
   { id: "desktops", name: "Desktops", up: step("taskView"), down: step("showDesktop"), left: step("desktopLeft"), right: step("desktopRight"), spacingMm: 6 },
   { id: "browser", name: "Browser", up: step("newTab"), down: step("closeTab"), left: step("back"), right: step("forward"), spacingMm: 6 },
   {
@@ -53,6 +53,7 @@ function withMacroUses(state: AgentState): AgentState {
 
 /** Sample state for previewing the app in a browser, outside Tauri. It never talks to a mouse. */
 export function previewState(): AgentState {
+  const builtIn = builtInPresets();
   const bindings: ButtonBinding[] = [
     { button: "middle", mode: "action", action: { type: "hold", keys: ["ShiftLeft"] } },
     { button: "back", mode: "action", action: { type: "macro", macro: "snapleft" } },
@@ -65,9 +66,9 @@ export function previewState(): AgentState {
     startAtLogin: true,
     revision: 0,
     multiClickMs: 300,
-    builtInPresets: BUILT_IN,
+    builtInPresets: builtIn,
     gesturePresets: [
-      ...BUILT_IN,
+      ...builtIn,
       {
         id: "tiling",
         name: "Window tiling",

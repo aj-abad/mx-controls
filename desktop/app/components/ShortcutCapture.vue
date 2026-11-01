@@ -3,18 +3,19 @@
     ref="field"
     type="button"
     :aria-label="capturing ? 'Press keys, or Esc to cancel' : `${label}: ${chordLabel(modelValue)}`"
-    class="flex h-10 w-full items-center rounded-lg bg-field px-3 text-left text-sm ring-1 ring-inset transition-colors"
+    :title="capturing ? (pending.length ? chordLabel(pending) : 'Press the keys…') : chordLabel(modelValue)"
+    class="flex h-10 w-full min-w-0 items-center overflow-hidden rounded-lg bg-field px-3 text-left text-sm ring-1 ring-inset transition-colors"
     :class="capturing ? 'ring-2 ring-accent' : 'ring-line hover:ring-fill-strong'"
     @click="capturing ? stop() : begin()"
     @blur="onBlur">
-    <span v-if="capturing" class="text-ink-2">
+    <span v-if="capturing" class="min-w-0 truncate text-ink-2">
       {{ pending.length ? `${chordLabel(pending)} + …` : "Press the keys…" }}
     </span>
-    <span v-else-if="modelValue?.length" class="flex flex-wrap gap-1">
+    <span v-else-if="modelValue?.length" class="flex min-w-0 gap-1 overflow-hidden">
       <kbd
         v-for="key in modelValue"
         :key="key"
-        class="rounded-md bg-fill px-1.5 py-0.5 font-sans text-xs font-medium">{{ keyLabel(key) }}</kbd>
+        class="shrink-0 rounded-md bg-fill px-1.5 py-0.5 font-sans text-xs font-medium">{{ keyLabel(key) }}</kbd>
     </span>
     <span v-else class="text-ink-3">Click, then press the keys</span>
   </button>
@@ -32,6 +33,7 @@ const capturing = ref(false);
 const pending = ref<string[]>([]);
 /** Hands the keyboard back to Windows while the agent has it; the page's own key events are ignored then. */
 let release: (() => void) | null = null;
+let capture: AbortController | null = null;
 let session = 0;
 
 // A chord ends at its first non-modifier key; modifiers alone end when the first of them is released.
@@ -83,7 +85,8 @@ async function begin() {
   window.addEventListener("keydown", onKeyDown, { capture: true });
   window.addEventListener("keyup", onKeyUp, { capture: true });
   const mine = ++session;
-  const handBack = await captureKeys({ key: ({ code, down }) => press(code, down), ended: stop });
+  capture = new AbortController();
+  const handBack = await captureKeys({ key: ({ code, down }) => press(code, down), ended: stop }, capture.signal);
   // Recording may have ended while the agent was starting.
   if (mine === session) release = handBack;
   else handBack?.();
@@ -95,6 +98,8 @@ function stop() {
   pending.value = [];
   window.removeEventListener("keydown", onKeyDown, { capture: true });
   window.removeEventListener("keyup", onKeyUp, { capture: true });
+  capture?.abort();
+  capture = null;
   release?.();
   release = null;
 }

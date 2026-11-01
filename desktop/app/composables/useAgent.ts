@@ -228,6 +228,8 @@ function receive(next: AgentState) {
   if (next.revision < revisionFloor) return;
   revisionFloor = next.revision;
   agentState.value = next;
+  // The editor is unavailable while the device is disconnected; release any capture it owned.
+  if (!next.connected) keyHandlers?.ended();
 }
 
 /**
@@ -367,18 +369,25 @@ async function refresh() {
  * Windows. Resolves to a function that hands the keyboard back, or null where the agent can't do it,
  * in which case the caller records keys in the page itself.
  */
-async function captureKeys(handlers: KeyHandlers): Promise<(() => void) | null> {
-  if (!inTauri()) return null;
+async function captureKeys(handlers: KeyHandlers, signal?: AbortSignal): Promise<(() => void) | null> {
+  if (!inTauri() || signal?.aborted) return null;
   keyHandlers = handlers;
+  let released = false;
   const release = () => {
+    if (released) return;
+    released = true;
+    signal?.removeEventListener("abort", release);
     if (keyHandlers !== handlers) return;
     keyHandlers = null;
     void call("stopKeyCapture").catch(() => {});
   };
+  // Stop can arrive before startKeyCapture answers. Release the native hook immediately in that case.
+  signal?.addEventListener("abort", release, { once: true });
   try {
     await call("startKeyCapture");
-    return release;
+    return released ? null : release;
   } catch {
+    signal?.removeEventListener("abort", release);
     if (keyHandlers === handlers) keyHandlers = null;
     return null;
   }
@@ -404,6 +413,7 @@ function start() {
     pipeConnected.value = payload;
     revisionFloor = -1;
     if (payload) void refresh();
+    else keyHandlers?.ended();
   });
   void invoke<boolean>("agent_connected").then((connected) => {
     pipeConnected.value = connected;

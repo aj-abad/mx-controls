@@ -2,7 +2,7 @@
   <div class="flex flex-col gap-6">
     <UiSegmented v-model="draft.mode" :options="MODE_OPTIONS" label="What the thumb wheel does" @update:model-value="changeMode" />
 
-    <template v-if="draft.mode === 'actions'">
+    <div class="flex flex-col gap-4" :class="draft.mode !== 'actions' && 'opacity-40'" :inert="draft.mode !== 'actions' || undefined">
       <div class="flex flex-wrap items-center gap-1.5">
         <span class="mr-0.5 text-xs text-ink-3">Presets</span>
         <button
@@ -23,7 +23,7 @@
           :allow-repeat="false"
           @update:model-value="(action) => ((draft[side.id] = action), save())" />
       </div>
-    </template>
+    </div>
 
     <UiSlider
       v-model="draft.speed"

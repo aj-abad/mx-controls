@@ -1,116 +1,119 @@
 <template>
-  <div class="flex flex-col gap-6">
-    <section class="flex flex-col gap-1.5" :aria-label="`${button.name} clicks`">
+  <div class="flex flex-col gap-5">
+    <section class="flex flex-col gap-3" :aria-label="`${button.name} clicks`">
       <h3 class="text-xs font-medium text-ink-3">{{ preset ? "Press without moving" : "Press" }}</h3>
-      <TriggerRow label="Click" :dots="1" :caption="preset || waits ? 'on release' : undefined" :fired="fired === 1">
-        <ActionEditor
-          :model-value="draft.click"
-          :label="`${button.name} click`"
-          :default-label="defaultLabel"
-          :allow-hold="!waits"
-          :allow-repeat="!waits"
-          @update:model-value="(action) => setClick(action)"
-          @default="setClick(null)" />
-      </TriggerRow>
-      <TriggerRow v-if="downgraded" label="">
-        <p class="rounded-lg bg-warn-fill px-2.5 py-1.5 text-[13px] text-warn" role="status">{{ downgraded }}</p>
-      </TriggerRow>
-
-      <TriggerRow label="Double click" :dots="2" :muted="!draft.double" :fired="fired === 2">
-        <div v-if="draft.double" class="flex items-start gap-1">
-          <ActionEditor
-            v-model="draft.double"
-            class="min-w-0 flex-1"
-            :label="`${button.name} double click`"
-            :allow-hold="false"
-            :allow-repeat="false" />
-          <UiButton variant="ghost" size="sm" aria-label="Remove the double click" class="mt-1" @click="removeDouble">
-            <PhX class="size-4" />
-          </UiButton>
-        </div>
-        <button v-else type="button" :class="GHOST" @click="addDouble">+ Add an action</button>
-      </TriggerRow>
-
-      <template v-if="draft.double">
-        <TriggerRow label="">
-          <p class="text-[13px] text-ink-3">
-            A single click now waits
-            <PopoverRoot v-model:open="waitOpen">
-              <PopoverTrigger class="border-b border-dotted border-ink-3 text-ink hover:border-ink">{{ speed }} ms</PopoverTrigger>
-              <UiPopoverContent :open="waitOpen" class="flex w-72 flex-col gap-2 p-4">
-                <UiSlider
-                  v-model="speed"
-                  label="Click wait"
-                  :min="150"
-                  :max="600"
-                  :step="25"
-                  :default-value="300"
-                  :format="(ms) => `${ms} ms`"
-                  @commit="(ms) => attempt('setMultiClickMs', { ms }, 'Couldn\'t change how long clicks wait')" />
-                <p class="text-xs text-ink-3">Applies to every button. Shorter feels snappier; longer is easier to hit.</p>
-              </UiPopoverContent>
-            </PopoverRoot>
-            for a second one.
-          </p>
-        </TriggerRow>
-        <TriggerRow label="Triple click" :dots="3" :muted="!draft.triple" :fired="fired === 3">
-          <div v-if="draft.triple" class="flex items-start gap-1">
-            <ActionEditor
-              v-model="draft.triple"
-              class="min-w-0 flex-1"
-              :label="`${button.name} triple click`"
-              :allow-hold="false"
-              :allow-repeat="false" />
-            <UiButton variant="ghost" size="sm" aria-label="Remove the triple click" class="mt-1" @click="draft.triple = null">
-              <PhX class="size-4" />
-            </UiButton>
-          </div>
-          <button v-else type="button" :class="GHOST" @click="draft.triple = { type: 'press', keys: [] }">+ Add an action</button>
-        </TriggerRow>
-      </template>
+      <div class="flex h-8 items-center gap-1" role="group" aria-label="Click count">
+        <button
+          v-for="count in [1, 2, 3]"
+          :key="count"
+          type="button"
+          :disabled="count === 3 && !draft.double"
+          :aria-pressed="clickTab === count"
+          class="h-8 flex-1 rounded-lg px-2 text-xs font-medium disabled:opacity-30"
+          :class="[
+            clickTab === count ? 'bg-fill ring-1 ring-line ring-inset' : 'text-ink-3 hover:bg-fill/60',
+            fired === count && 'ring-2 ring-accent',
+          ]"
+          @click="chooseClickTab(count)"
+        >
+          {{ CLICK_NAMES[count]
+          }}{{ (count === 2 && !draft.double) || (count === 3 && !draft.triple) ? " +" : "" }}
+        </button>
+      </div>
+      <div class="flex h-6 items-center justify-between text-xs text-ink-3">
+        <span>{{
+          clickTab === 1 ? (preset || waits ? "Runs on release" : "Runs on press") : "Runs on release"
+        }}</span>
+        <button
+          type="button"
+          :disabled="clickTab === 1"
+          class="rounded px-1.5 py-1 hover:bg-fill disabled:invisible"
+          @click="removeSelectedClick"
+        >
+          Remove action
+        </button>
+      </div>
+      <ActionEditor
+        :key="`${button.id}:${clickTab}`"
+        :model-value="selectedClick"
+        :label="`${button.name} ${CLICK_NAMES[clickTab]}`"
+        :default-label="clickTab === 1 ? defaultLabel : undefined"
+        :allow-hold="clickTab === 1 && !waits"
+        :allow-repeat="clickTab === 1 && !waits"
+        @update:model-value="setSelectedClick"
+        @default="setClick(null)"
+      />
+      <div class="h-10 text-[13px] leading-relaxed text-ink-3">
+        <p v-if="draft.double">
+          A single click waits
+          <PopoverRoot v-model:open="waitOpen"
+            ><PopoverTrigger class="border-b border-dotted border-ink-3 text-ink"
+              >{{ speed }} ms</PopoverTrigger
+            ><UiPopoverContent :open="waitOpen" class="flex w-72 flex-col gap-2 p-4"
+              ><UiSlider
+                v-model="speed"
+                label="Click wait"
+                :min="150"
+                :max="600"
+                :step="25"
+                :default-value="300"
+                :format="(ms) => `${ms} ms`"
+                @commit="(ms) => attempt('setMultiClickMs', { ms }, 'Couldn\'t change how long clicks wait')"
+              />
+              <p class="text-xs text-ink-3">
+                Applies to every button. Shorter feels snappier; longer is easier to hit.
+              </p></UiPopoverContent
+            ></PopoverRoot
+          >
+          for another click.
+        </p>
+        <p v-else>
+          Use the double-click tab to add another action. Triple clicks become available after that.
+        </p>
+      </div>
     </section>
 
-    <section class="flex flex-col gap-1.5" :aria-label="`${button.name} moves`">
+    <section class="flex flex-col gap-3" :aria-label="`${button.name} moves`">
       <div class="flex items-center justify-between">
-        <h3 class="text-xs font-medium text-ink-3">Move while holding</h3>
-        <button type="button" class="text-xs text-ink-3 hover:text-ink" @click="emit('openPresets', null)">Gesture presets ›</button>
+        <h3 class="text-xs font-medium text-ink-3">Gestures while held</h3>
+        <button type="button" class="text-xs text-ink-3 hover:text-ink" @click="emit('openPresets', null)">
+          Browse library ›
+        </button>
       </div>
-      <TriggerRow label="Preset">
-        <UiSelect v-model="presetChoice" :options="presetOptions" :label="`${button.name} gesture preset`" />
-      </TriggerRow>
-      <TriggerRow v-if="!preset" label="">
-        <p class="text-[13px] text-ink-3">
-          Hold the button and move the mouse to run an action. Presets are made on their own page, so any button can
-          share them.
+      <UiSelect v-model="presetChoice" :options="presetOptions" :label="`${button.name} gesture preset`" />
+      <UiScrollArea class="h-48 rounded-xl bg-fill/60 ring-1 ring-line ring-inset" content-class="p-3">
+        <p v-if="!preset" class="text-[13px] leading-relaxed text-ink-3">
+          Hold this button, then move up, down, left or right. Choose a shared preset to assign those
+          movements.
         </p>
-      </TriggerRow>
-      <TriggerRow v-else label="">
-        <div class="flex flex-col gap-2.5 rounded-xl bg-fill/60 p-3 ring-1 ring-line ring-inset">
+        <template v-else>
           <div class="flex items-start gap-3">
             <PresetCompass :preset="preset" :highlight="firedPath" class="shrink-0" />
             <ul class="flex min-w-0 flex-col gap-0.5 text-[13px]">
               <li v-for="line in presetLines" :key="line.key" class="flex min-w-0 gap-2">
-                <span class="w-12 shrink-0 text-ink-3" aria-hidden="true">{{ line.glyphs }}</span>
-                <span class="sr-only">{{ line.glyphs }}:</span>
-                <span class="truncate">{{ line.action }}</span>
+                <span class="w-12 shrink-0 text-ink-3">{{ line.glyphs }}</span
+                ><span class="truncate">{{ line.action }}</span>
               </li>
               <li v-if="moreLines" class="text-ink-3">and {{ moreLines }} more</li>
             </ul>
           </div>
-          <div class="flex items-center gap-2 border-t border-line pt-2.5">
+          <div class="mt-3 flex items-center gap-2 border-t border-line pt-2.5">
             <p class="min-w-0 flex-1 text-xs text-ink-3">{{ presetUsed }}</p>
             <UiButton size="sm" @click="emit('openPresets', preset.id)">Edit preset ›</UiButton>
           </div>
-        </div>
-      </TriggerRow>
+        </template>
+      </UiScrollArea>
     </section>
-
-    <p v-if="unfinished" class="text-sm text-warn">Choose an action for “{{ unfinished }}” to save this button.</p>
+    <UiScrollArea
+      class="h-12 text-xs leading-relaxed"
+      :class="unfinished ? 'text-warn' : 'text-ink-3'"
+      role="status"
+    >
+      {{ unfinished ? `Choose an action for “${unfinished}” to save this button.` : downgraded }}
+    </UiScrollArea>
   </div>
 </template>
-
 <script setup lang="ts">
-import { PhX } from "@phosphor-icons/vue";
 import { PopoverRoot, PopoverTrigger } from "reka-ui";
 import type { ButtonAction, ButtonBinding, ButtonState, Direction } from "~/composables/useAgent";
 
@@ -145,7 +148,28 @@ interface Draft {
   preset: string | null;
 }
 const draft = ref<Draft>({ click: null, double: null, triple: null, preset: null });
-/** Said on the click's row when a double click or a preset turned its key into a macro, or its repeat off. */
+const CLICK_NAMES: Record<number, string> = { 1: "Click", 2: "Double click", 3: "Triple click" };
+const clickTab = ref(1);
+const selectedClick = computed(() =>
+  clickTab.value === 1 ? draft.value.click : clickTab.value === 2 ? draft.value.double : draft.value.triple,
+);
+function chooseClickTab(count: number) {
+  if (count === 3 && !draft.value.double) return;
+  if (count === 2 && !draft.value.double) addDouble();
+  if (count === 3 && !draft.value.triple) draft.value.triple = { type: "press", keys: [] };
+  clickTab.value = count;
+}
+function setSelectedClick(action: ButtonAction) {
+  if (clickTab.value === 1) setClick(action);
+  else if (clickTab.value === 2) draft.value.double = action;
+  else draft.value.triple = action;
+}
+function removeSelectedClick() {
+  if (clickTab.value === 2) removeDouble();
+  else if (clickTab.value === 3) draft.value.triple = null;
+  clickTab.value = 1;
+}
+/** Explains when a double click or preset changed held keys into a shortcut, or stopped repetition. */
 const downgraded = ref("");
 
 const { state, attempt, lastGesture, lastClick } = useAgent();
@@ -164,6 +188,8 @@ function reset() {
     triple: (legacy ? legacy.tripleClick : b?.tripleClick) ?? null,
     preset: b?.mode === "gesture" ? (b.preset ?? null) : null,
   };
+  if ((clickTab.value === 2 && !draft.value.double) || (clickTab.value === 3 && !draft.value.triple))
+    clickTab.value = 1;
   downgraded.value = "";
 }
 
@@ -193,10 +219,12 @@ function removeDouble() {
 watch(waits, (now) => {
   const click = draft.value.click;
   if (!now || !click) return void (downgraded.value = "");
-  const why = draft.value.double ? "a click now waits for a second one" : "the click now runs when you let go";
+  const why = draft.value.double
+    ? "a click now waits for a second one"
+    : "the click now runs when you let go";
   if (click.type === "hold") {
     draft.value.click = { ...click, type: "press", repeat: false };
-    downgraded.value = `Since ${why}, the key became a macro that taps ${chordLabel(click.keys)} once.`;
+    downgraded.value = `Since ${why}, the held keys became a keyboard shortcut that taps ${chordLabel(click.keys)} once.`;
   } else if (click.repeat) {
     draft.value.click = { ...click, repeat: false };
     downgraded.value = `Since ${why}, the click no longer repeats.`;
@@ -240,7 +268,10 @@ const presetLines = computed(() =>
 const moreLines = computed(() => Math.max(0, presetRows.value.length - MAX_LINES));
 const presetUsed = computed(() => {
   if (!preset.value) return "";
-  const others = presets.usedBy(preset.value.id, { profile: state.value?.activeProfile ?? "", button: button.id });
+  const others = presets.usedBy(preset.value.id, {
+    profile: state.value?.activeProfile ?? "",
+    button: button.id,
+  });
   if (!others.length) return "Only this button uses it.";
   return `Shared with ${others.join(", ")}. Editing it changes ${others.length === 1 ? "both" : "all of them"}.`;
 });
@@ -291,7 +322,10 @@ function light(count: number, path: Direction[] | null) {
   }, 700);
 }
 watch(lastClick, (click) => click?.button === button.id && light(click.count, null));
-watch(lastGesture, (gesture) => gesture?.button === button.id && gesture.path.length > 0 && light(0, gesture.path));
+watch(
+  lastGesture,
+  (gesture) => gesture?.button === button.id && gesture.path.length > 0 && light(0, gesture.path),
+);
 onBeforeUnmount(() => clearTimeout(unlight));
 
 function useClickWait() {

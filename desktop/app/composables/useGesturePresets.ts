@@ -36,14 +36,14 @@ export function useGesturePresets() {
   async function change(preset: GesturePreset) {
     const before = find(preset.id);
     if (!(await save(preset))) return false;
-    rememberUndo(() => (before ? save(before) : remove(preset.id, preset.name)));
+    rememberUndo(() => (before ? save(before) : remove(preset.id, preset.name)), () => save(preset), "Edit gesture preset");
     return true;
   }
 
   /** Deletes an own preset, or takes a built-in one back to how it came. Buttons following it come back with undo. */
   async function discard(preset: GesturePreset) {
     if (!(await remove(preset.id, preset.name))) return false;
-    rememberUndo(() => save(preset));
+    rememberUndo(() => save(preset), () => remove(preset.id, preset.name), "Delete gesture preset");
     return true;
   }
 

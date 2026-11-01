@@ -135,6 +135,23 @@ public sealed class ButtonEngine : IAsyncDisposable
         await WriteAsync(next);
     }
 
+    /// <summary>
+    /// Lets go of every press without running anything, after the mouse reconnected: whatever was held when the link
+    /// dropped never sends its release, so its keys would stay down and its next click would count as a second.
+    /// </summary>
+    public void ReleaseAll()
+    {
+        lock (_gate)
+        {
+            _runner.EndAll();
+            // Clicks already released keep waiting; only a press cut off partway has nothing left to count.
+            foreach (var cid in _held)
+                DropClicks(cid);
+            _held = [];
+            _gestureButton = null;
+        }
+    }
+
     /// <summary>Diverts the bound controls again, after the mouse reconnected and forgot its diversions.</summary>
     public Task DivertAsync()
     {

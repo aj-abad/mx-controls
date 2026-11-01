@@ -13,7 +13,7 @@ The first goal is something Options+ can't do: buttons that behave as **held** k
 | `agent/MxControls.Platform.Windows` | HID access through `hid.dll` and `cfgmgr32.dll`, key and wheel input through `SendInput`, system actions and the sign-in Run key. |
 | `agent/MxControls.Tests` | Unit tests for the engine, bindings, thumb wheel and settings. |
 | `agent/MxControls.Cli` | `mx`, for trying things against the mouse directly. |
-| `desktop/` | The app: Tauri, Nuxt, Tailwind and reka-ui, styled after Logi Options+ in a light theme. Its Rust side relays requests and events between the window and the agent's pipe. |
+| `desktop/` | The app: Tauri, Nuxt, Tailwind and reka-ui, with a Profiles workspace and shared gesture and macro libraries. It follows the system appearance. Its Rust side relays requests and events between the window and the agent's pipe. |
 
 The agent keeps running when the window closes, so mappings keep working. The app starts it if it isn't running.
 
@@ -52,7 +52,13 @@ macOS 26 uses the Icon Composer icon `icons/AppIcon.icon`. `pnpm build` on a Mac
 
 To preview the window in a browser with sample values and no mouse, run `pnpm dev` and open `http://127.0.0.1:3000`. Outside Tauri the app uses `app/utils/preview.ts`.
 
-The Buttons page draws hotspots over `public/mx-master-4.png`, Logitech's product photo, cropped to the mouse. Their positions are percentages of the photo in `app/components/MouseMap.vue`. The photo is Logitech's, so keep it out of anything published.
+The Profiles page draws hotspots over `public/mx-master-4.png`, Logitech's product photo, cropped to the mouse. Their positions are defined against the photo in `app/utils/controlMap.ts` and drawn by `app/components/ControlMap.vue`. The photo is Logitech's, so keep it out of anything published.
+
+The current UI direction and follow-up scope for guided gesture rehearsal and reminders are in [Profiles and gesture controls](docs/ui-redesign.md).
+
+The macro recorder's editing commands, timeline gestures, shortcuts and layout contract are in [Macro editor](docs/macro-editor.md).
+
+For automated checks of the actual Windows desktop shell, run `pnpm test:native` from `desktop`. It launches a hidden Tauri/WebView2 instance with an isolated simulated agent, without desktop automation or real-device changes. Setup, artifacts, and coverage are in [Native UI tests](docs/native-testing.md).
 
 ```bash
 pnpm typecheck
@@ -135,7 +141,7 @@ A macro is named and kept in the settings, belonging to no profile, so every act
 
 A step is `keys`, tapped together; `text`, typed as written whatever the keyboard layout; `wait`, for `ms`; or `click`, a tap of the mouse button `mouse`. A macro waits at most a second in all. One without waits runs at once, like `press`; one that waits runs in the background, one macro at a time, and a repeat that comes while it's still running is skipped. `repeat: true` on the action repeats it while the button is held.
 
-Settings from before macros carried recorded keys as `press` actions. The agent turns each that isn't one of the app's built-in actions, such as Copy, into a macro named after its keys, in every profile, thumb wheel and gesture preset; the same keys share one.
+Keyboard shortcuts use `press` with one key combination saved directly on the assigned action. They stay independent of the shared macro library, including after settings are reloaded. The picker groups Keyboard shortcut and Hold keys separately from Shared macros. Existing macros remain shared; Use as shortcut explicitly copies a one-combination macro into the current action without changing the saved macro.
 
 Keys are `KeyboardEvent.code` names, modifiers first. `repeat: true` repeats a `press` or `system` action while the button is held: after 300 ms, then every 200 ms.
 
