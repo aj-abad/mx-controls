@@ -57,7 +57,7 @@ public sealed partial class WindowsLoginItem : ILoginItem
             <?xml version="1.0" encoding="UTF-16"?>
             <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
               <RegistrationInfo>
-                <Description>Runs MX Controls button mappings and gestures for the MX Master mouse.</Description>
+                <Description>Runs MX Studio button mappings and gestures for the MX Master mouse.</Description>
               </RegistrationInfo>
               <Triggers>
                 <LogonTrigger>

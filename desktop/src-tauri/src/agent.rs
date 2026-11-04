@@ -1,4 +1,4 @@
-//! The connection to the MX Controls agent: newline-delimited JSON over a named pipe on Windows,
+//! The connection to the MX Studio agent: newline-delimited JSON over a named pipe on Windows,
 //! and over the Unix socket .NET makes for the same pipe name elsewhere.
 
 use serde_json::{json, Value};
@@ -47,7 +47,7 @@ impl Agent {
         {
             let outbox = self.outbox.lock().await;
             let Some(outbox) = outbox.as_ref() else {
-                return Err("The MX Controls agent isn't running.".into());
+                return Err("The MX Studio agent isn't running.".into());
             };
             self.pending.lock().await.insert(id, reply);
             let line = json!({ "id": id, "method": method, "params": params }).to_string();
@@ -76,7 +76,7 @@ pub async fn run(app: AppHandle, agent: Arc<Agent>) {
         .map_err(std::io::Error::other)
         .and_then(|unpacked| unpacked)
     {
-        eprintln!("MX Controls: couldn't unpack the agent: {error}");
+        eprintln!("MX Studio: couldn't unpack the agent: {error}");
     }
     #[cfg(not(feature = "ui-tests"))]
     let mut launched: Option<Instant> = None;
@@ -180,14 +180,14 @@ fn agent_path() -> Option<PathBuf> {
 #[cfg(not(feature = "ui-tests"))]
 fn launch_agent() {
     let Some(path) = agent_path() else {
-        eprintln!("MX Controls: no mx-agent beside the app; run `pnpm agent` or set MX_AGENT_PATH");
+        eprintln!("MX Studio: no mx-agent beside the app; run `pnpm agent` or set MX_AGENT_PATH");
         return;
     };
     let mut command = Command::new(&path);
     command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     hide_window(&mut command);
     if let Err(error) = command.spawn() {
-        eprintln!("MX Controls: couldn't start {}: {error}", path.display());
+        eprintln!("MX Studio: couldn't start {}: {error}", path.display());
     }
 }
 

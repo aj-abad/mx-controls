@@ -13,6 +13,8 @@
 ; The agent registers its sign-in task itself on first run; uninstalling removes it, and the Run key older builds used.
 !macro NSIS_HOOK_PREUNINSTALL
   !insertmacro STOP_MX_AGENT
+  nsExec::Exec 'schtasks /Delete /TN "MX Studio Agent" /F'
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "MX Studio Agent"
   nsExec::Exec 'schtasks /Delete /TN "MX Controls Agent" /F'
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "MX Controls Agent"
 !macroend

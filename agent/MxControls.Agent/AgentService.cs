@@ -15,7 +15,9 @@ namespace MxControls.Agent;
 /// </summary>
 public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsyncDisposable
 {
-    public const string LoginItemName = "MX Controls Agent";
+    public const string LoginItemName = "MX Studio Agent";
+    // The app was called MX Controls; its task would start the agent a second time.
+    private const string FormerLoginItemName = "MX Controls Agent";
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan BatteryInterval = TimeSpan.FromMinutes(1);
@@ -105,6 +107,7 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
     {
         try
         {
+            platform.LoginItem.Disable(FormerLoginItemName);
             if (_settings.StartAtLogin && Environment.ProcessPath is { } executable)
                 platform.LoginItem.Enable(LoginItemName, executable);
             else if (!_settings.StartAtLogin)

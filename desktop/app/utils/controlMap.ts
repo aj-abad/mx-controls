@@ -136,7 +136,7 @@ export function routePath(control: Control, top: number, frame: Frame) {
 export const isDefaultThumbWheel = (wheel: ThumbWheelSettings | undefined) =>
   !wheel || (wheel.mode === "scroll" && wheel.speed === 100 && !wheel.inverted);
 
-/** Controls another app has diverted and MX Controls leaves at their default, so the other app acts on them. */
+/** Controls another app has diverted and MX Studio leaves at their default, so the other app acts on them. */
 export function sharedControlCount(state: AgentState) {
   const device = state.device;
   if (!device) return 0;

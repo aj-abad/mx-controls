@@ -57,5 +57,5 @@ pub fn run() {
     #[cfg(feature = "ui-tests")]
     let builder = builder.invoke_handler(tauri::generate_handler![agent_call, agent_connected, ui_test::ui_test_environment]);
     builder.run(context)
-        .expect("error while running MX Controls");
+        .expect("error while running MX Studio");
 }

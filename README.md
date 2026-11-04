@@ -1,4 +1,4 @@
-# MX Controls
+# MX Studio
 
 A cross-platform alternative to Logi Options+ for the MX Master 4. It talks to the mouse directly over HID++ 2.0, Logitech's vendor protocol.
 
@@ -40,9 +40,9 @@ The window starts the sidecar beside it unless an agent is already running; set 
 deploy.cmd
 ```
 
-It builds MX Controls as one portable exe, closes the open window, copies the exe to `D:\Programs\MXControls.exe` and starts it again. Pass `-Destination <path>` for another location or `-SkipBuild` to deploy the last build. A failed build leaves the running copy alone.
+It builds MX Studio as one portable exe, closes the open window, copies the exe to `D:\Programs\MX Studio.exe` and starts it again. Pass `-Destination <path>` for another location or `-SkipBuild` to deploy the last build. A failed build leaves the running copy alone.
 
-The portable exe is a release build with the `embedded-agent` feature, so it carries the agent inside it. On launch it unpacks the agent to `%LOCALAPPDATA%\MxControls\mx-agent.exe` and starts it from there, so the sign-in task points there too. When the exe carries a different agent from the one already unpacked, it stops the old one with `--stop` and replaces it before connecting. The agent keeps the buttons working through the build, until the new window takes over. The installer's `MX Controls` folder is a different place, so the two don't mix.
+The portable exe is a release build with the `embedded-agent` feature, so it carries the agent inside it. On launch it unpacks the agent to `%LOCALAPPDATA%\MxControls\mx-agent.exe` and starts it from there, so the sign-in task points there too. When the exe carries a different agent from the one already unpacked, it stops the old one with `--stop` and replaces it before connecting. The agent keeps the buttons working through the build, until the new window takes over. The installer's `MX Studio` folder is a different place, so the two don't mix.
 
 ### Icons
 
@@ -177,7 +177,7 @@ Easy-Switch comes from CHANGE_HOST and HOSTS_INFO, read with Solaar's layouts. `
 
 Settings are saved in `%APPDATA%\MxControls\settings.json`, or `~/Library/Application Support/MxControls` on macOS. Older held-key `mappings` and bindings from before profiles become the `Default` profile on first load. The agent logs to `Logs/agent.log` in the same folder.
 
-With start at sign-in on, which is the default, the agent registers itself as the scheduled task `MX Controls Agent` each time it starts, so the task always points at the copy that last ran. The task runs it at sign-in, in your session, and restarts it a minute after it crashes. A clean exit isn't a failure, so a stopped agent stays stopped. Only instances the task started are restarted. While the window is open, the app also restarts an agent it can't reach.
+With start at sign-in on, which is the default, the agent registers itself as the scheduled task `MX Studio Agent` each time it starts, so the task always points at the copy that last ran. The task runs it at sign-in, in your session, and restarts it a minute after it crashes. A clean exit isn't a failure, so a stopped agent stays stopped. Only instances the task started are restarted. While the window is open, the app also restarts an agent it can't reach.
 
 The agent isn't a Windows service: a service runs in session 0, outside the desktop, so it couldn't send keys. On macOS the same role belongs to a per-user LaunchAgent in `~/Library/LaunchAgents`, with `RunAtLoad`, and `KeepAlive` set to restart only after an unsuccessful exit. That belongs with the macOS backend.
 

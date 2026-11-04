@@ -75,7 +75,7 @@ const { modelValue, label, allowHold = true, defaultLabel, layers = "none", prof
   modelValue: string;
   label: string;
   allowHold?: boolean;
-  /** Offers "default", what the button does without MX Controls, under this name. */
+  /** Offers "default", what the button does without MX Studio, under this name. */
   defaultLabel?: string;
   /** Which second-layer actions fit here: holding it needs a press that lasts. */
   layers?: "hold" | "toggle" | "none";

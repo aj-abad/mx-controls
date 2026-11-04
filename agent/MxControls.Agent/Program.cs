@@ -15,7 +15,7 @@ if (!args.Contains("--worker"))
 using var instance = new Mutex(initiallyOwned: true, WorkerMutex, out bool first);
 if (!first)
 {
-    Console.Error.WriteLine("The MX Controls agent is already running.");
+    Console.Error.WriteLine("The MX Studio agent is already running.");
     return 0;
 }
 

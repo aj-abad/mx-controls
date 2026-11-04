@@ -4,7 +4,7 @@
     <header class="flex h-12 shrink-0 items-center gap-3 border-b border-line px-5" :class="!isMac && 'pr-3'">
       <div class="flex w-36 shrink-0 items-center gap-2.5">
         <PhMouseSimple class="size-5 text-ink-2" />
-        <span class="text-sm font-semibold">MX Controls</span>
+        <span class="text-sm font-semibold">MX Studio</span>
       </div>
       <div v-if="device" class="flex min-w-0 items-center gap-3">
         <DeviceInfo :device="device" />
@@ -69,7 +69,7 @@
           <div v-if="!pipeConnected || !device" class="grid h-full place-items-center">
             <div class="flex max-w-sm flex-col items-center text-center">
               <img src="/mx-master-4.png" alt="" class="mb-2 w-64 opacity-60" />
-              <h2 class="text-lg font-semibold">{{ pipeConnected ? 'Connect your MX Master' : 'Starting MX Controls' }}</h2>
+              <h2 class="text-lg font-semibold">{{ pipeConnected ? 'Connect your MX Master' : 'Starting MX Studio' }}</h2>
               <p class="mt-1 text-sm text-ink-3">{{ pipeConnected ? (state?.error ?? 'Turn the mouse on and connect it to this computer over Bluetooth. It appears here on its own.') : 'Getting the background helper ready. It runs your buttons, even with this window closed.' }}</p>
             </div>
           </div>

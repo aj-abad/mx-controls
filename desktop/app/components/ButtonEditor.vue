@@ -138,7 +138,7 @@ const emit = defineEmits<{
 const GHOST =
   "flex h-10 w-full items-center rounded-lg border border-dashed border-fill-strong px-3 text-sm text-ink-3 hover:border-ink-3 hover:text-ink";
 
-/** What the button does without MX Controls, as an action, for the buttons whose own action is known. */
+/** What the button does without MX Studio, as an action, for the buttons whose own action is known. */
 const OWN_ACTIONS: Record<string, ButtonAction> = {
   back: { type: "click", mouse: "back" },
   forward: { type: "click", mouse: "forward" },

@@ -4,7 +4,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "MX Controls",
+        "title": "MX Studio",
         "width": 1124,
         "height": 660,
         "resizable": false,

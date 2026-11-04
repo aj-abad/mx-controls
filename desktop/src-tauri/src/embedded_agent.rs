@@ -8,7 +8,7 @@ use std::time::Duration;
 
 const AGENT: &[u8] = include_bytes!(env!("MX_EMBEDDED_AGENT"));
 
-/// `%LOCALAPPDATA%\MxControls\mx-agent.exe`. Not the installer's `MX Controls` folder, so the two don't mix.
+/// `%LOCALAPPDATA%\MxControls\mx-agent.exe`. Not the installer's `MX Studio` folder, so the two don't mix.
 pub fn path() -> PathBuf {
     let base = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     base.join("MxControls").join(if cfg!(windows) { "mx-agent.exe" } else { "mx-agent" })
