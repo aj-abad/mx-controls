@@ -34,7 +34,19 @@ pub fn run() {
     #[cfg(feature = "ui-tests")]
     ui_test::validate(context.config());
     let agent = Arc::new(Agent::default());
-    let builder = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Must be the first plugin, so a second launch hands over before it starts anything of its own.
+    // UI test runs stay separate, since each drives its own hidden window.
+    #[cfg(not(feature = "ui-tests"))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
+        use tauri::Manager;
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }));
+    let builder = builder
         .manage(agent.clone())
         .setup(move |app| {
             tauri::async_runtime::spawn(agent::run(app.handle().clone(), agent));
