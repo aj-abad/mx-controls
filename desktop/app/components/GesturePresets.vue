@@ -292,13 +292,12 @@ function removePath(path: Direction[]) {
 }
 function extendPath(path: Direction[]) {
   if (shapeProblem(path) || fitProblem(draft.value!, path)) return;
-  const first = stepAt(draft.value!, path.slice(0, 1))!;
-  const tapped = first.type === "hold" || !!first.repeat;
+  const changed = addingChanges(draft.value!, path);
   draft.value = addPath(draft.value!, path);
   selectedKey.value = pathKey(path);
   void nextTick(() => moveEditor.value?.focusAction());
-  note.value = tapped
-    ? `${DIRECTION_LABELS[path[0]!]} now runs on release. Its held key or repeat was changed to a single action.`
+  note.value = changed
+    ? `${pathText(path.slice(0, -1))} now leads on, so its held key became a single action, or it stopped repeating.`
     : "";
 }
 function rename(event: Event) {

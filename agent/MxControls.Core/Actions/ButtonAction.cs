@@ -135,12 +135,15 @@ public sealed record GestureActions(
             return problem;
         if (step.Action.HoldsLayer)
             return "A gesture step can toggle the second layer but not hold it.";
-        // Only the first four directions run as they're reached; every other step taps when the button comes up.
-        if ((run > 1 || turns > 0 || !step.IsLeaf) && (step.Type == ActionTypes.Hold || step.Repeat))
-            return "Only a first direction with nothing beyond it can hold keys or repeat.";
+        // Only the first four directions run as they're reached and last while held; other steps tap when the button
+        // comes up, except one that repeats, which runs as it's reached and again as the movement keeps going.
+        if ((run > 1 || turns > 0 || !step.IsLeaf) && step.Type == ActionTypes.Hold)
+            return "Only a first direction with nothing beyond it can hold keys.";
         if (step[GestureStep.Opposite(came)] is not null)
             return "A step can't lead back the way it came.";
         bool extends = step[came] is not null;
+        if (extends && step.Repeat)
+            return "A step that repeats is the last in its direction, since going on repeats it.";
         if (extends && GestureStep.Across(came).Any(d => step[d] is not null))
             return "A step can go further or turn, but not both.";
         foreach (var next in GestureStep.Directions)

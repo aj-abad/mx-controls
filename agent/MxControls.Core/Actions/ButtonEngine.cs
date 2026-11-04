@@ -315,8 +315,12 @@ public sealed class ButtonEngine : IAsyncDisposable
                 // A path runs where it ends, as a tap; a step with no action is a junction, and backing out cancels.
                 if (_tracker.Step is { } step)
                 {
-                    RunOnce(step.Action);
-                    GestureFired?.Invoke(cid, Names(_tracker.Path), true);
+                    // A repeating step ran as it was reached.
+                    if (_tracker.ReleaseStep is not null)
+                    {
+                        RunOnce(step.Action);
+                        GestureFired?.Invoke(cid, Names(_tracker.Path), true);
+                    }
                 }
                 else if (_tracker.IsClick)
                     Click(cid, binding);
@@ -461,7 +465,10 @@ public sealed class ButtonEngine : IAsyncDisposable
                 _ => reached,
             });
         InterruptClicks(cid);
-        GestureFired?.Invoke(cid, Names(_tracker.Path), false);
+        bool ran = _tracker.Change is PathChange.Ran;
+        if (ran)
+            RunOnce(_tracker.Step!.Action);
+        GestureFired?.Invoke(cid, Names(_tracker.Path), ran);
     }
 
     /// <summary>

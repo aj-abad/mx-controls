@@ -214,11 +214,22 @@ public class BindingTests
     }
 
     [Fact]
-    public void OnlyAFirstDirectionWithNothingBeyondCanHoldOrRepeat()
+    public void OnlyAFirstDirectionWithNothingBeyondCanHold()
+    {
+        Assert.Contains("can hold keys", Problem(new GestureStep(ActionTypes.Hold, ["ShiftLeft"], Right: Step("KeyC"))));
+        Assert.Contains("can hold keys", Problem(Junction(right: new GestureStep(ActionTypes.Hold, ["ShiftLeft"]))));
+    }
+
+    [Fact]
+    public void ARepeatingStepIsTheLastInItsDirection()
     {
         Assert.Null(Problem(Step("KeyC") with { Repeat = true }));
-        Assert.Contains("hold keys or repeat", Problem(Junction(right: Step("KeyC") with { Repeat = true })));
-        Assert.Contains("hold keys or repeat", Problem(new GestureStep(ActionTypes.Hold, ["ShiftLeft"], Right: Step("KeyC"))));
+        Assert.Null(Problem(Junction(right: Step("KeyC") with { Repeat = true })));
+        Assert.Null(Problem(Junction(up: Step("KeyC") with { Repeat = true })));
+        // It can still turn, but not go further.
+        Assert.Null(Problem(Step("KeyC") with { Repeat = true, Up = Step("KeyV") }));
+        Assert.Contains("last in its direction", Problem(Step("KeyC") with { Repeat = true, Right = Step("KeyV") }));
+        Assert.Contains("last in its direction", Problem(Junction(right: Step("KeyC") with { Repeat = true, Right = Step("KeyV") })));
     }
 
     [Fact]

@@ -2,8 +2,11 @@ namespace MxControls.Actions;
 
 public enum GestureDirection { Up, Down, Left, Right }
 
-/// <summary>How the path changed with the last movement.</summary>
-public enum PathChange { None, Reached, ReachedBranch, BackedOff }
+/// <summary>
+/// How the path changed with the last movement. <c>Ran</c>: the repeating step at the end of the path runs now, as
+/// it's reached and again for every repeat step the movement keeps going.
+/// </summary>
+public enum PathChange { None, Reached, ReachedBranch, BackedOff, Ran }
 
 /// <summary>
 /// Turns pointer movement while a gesture button is held into directions. Movement is in sensor counts at the
@@ -35,7 +38,9 @@ public enum PathChange { None, Reached, ReachedBranch, BackedOff }
 /// A direction whose step leads further starts a path instead of firing. Each further step of a run is one
 /// spacing further on; movement across a run is dropped, and so is movement onwards at a step that turns, so
 /// drift can't pick the wrong way. Backing off along a run returns to the step before, with hysteresis, and
-/// backing out of the first step leaves the path. Nothing on a path runs until release.
+/// backing out of the first step leaves the path. Nothing on a path runs until release, except a repeating step,
+/// the last in its direction: it runs as it's reached and again for every <see cref="DefaultRepeatStepMm"/> the
+/// movement keeps going, and not again on release.
 /// </para>
 /// </remarks>
 public sealed class GestureTracker(
@@ -96,8 +101,11 @@ public sealed class GestureTracker(
     /// <summary>The directions taken on the path so far, one per step; empty when not on a path.</summary>
     public IReadOnlyList<GestureDirection> Path => [.. _runs.SelectMany(r => Enumerable.Repeat(r.Direction, r.Steps.Count))];
 
-    /// <summary>The step at the end of the path, which runs if the button comes up now; null when not on a path.</summary>
+    /// <summary>The step at the end of the path; null when not on a path.</summary>
     public GestureStep? Step => _runs.Count > 0 ? _runs[^1].Steps[^1] : null;
+
+    /// <summary>The step that runs if the button comes up now: the end of the path, unless it repeats and so has run.</summary>
+    public GestureStep? ReleaseStep => Step is { Repeat: false } step ? step : null;
 
     /// <summary>How the last <see cref="Add"/> changed the path.</summary>
     public PathChange Change { get; private set; }
@@ -202,6 +210,12 @@ public sealed class GestureTracker(
             _runs.Add(run);
         run.Steps.Add(step);
         (_reachedX, _reachedY) = (_x, _y);
+        if (step.Repeat)
+        {
+            (_firedX, _firedY) = (_x, _y);
+            Change = PathChange.Ran;
+            return;
+        }
         Change = step.Branches(run.Direction) ? PathChange.ReachedBranch : PathChange.Reached;
     }
 
@@ -233,6 +247,13 @@ public sealed class GestureTracker(
         {
             if (count < GestureActions.MaxRun && along >= Reach(count + 1))
                 Enter(run, further);
+            return;
+        }
+        // Nothing lies further this way, so going on runs a repeating step again.
+        if (step.Repeat && (_x - _firedX) * ux + (_y - _firedY) * uy >= Counts(repeatStepMm))
+        {
+            (_firedX, _firedY) = (_x, _y);
+            Change = PathChange.Ran;
             return;
         }
         if (!step.Branches(run.Direction))

@@ -31,7 +31,7 @@
         :model-value="actionOf(row.step)"
         :label="`${preset.name} ${pathText(path)}`"
         :allow-hold="row.instant"
-        :allow-repeat="row.instant"
+        :allow-repeat="row.repeatable"
         repeat-label="Repeat with movement"
         layers="toggle"
         profiles
@@ -146,12 +146,15 @@ const movementGuide = computed(() => {
 });
 const behaviorTitle = computed(() => {
   if (row.value?.step.type === "none") return row.value.leadsOn ? "Continue to another movement" : "No action assigned";
+  if (row.value?.step.repeat) return "Repeats with movement";
   if (!row.value?.instant) return "Runs on release";
   if (row.value.step.type === "hold") return "Keys stay held";
   return row.value.step.repeat ? "Repeats with movement" : "Runs as you move";
 });
 const behavior = computed(() => {
   if (!row.value) return "";
+  if (!row.value.instant && row.value.step.repeat && row.value.step.type !== "none")
+    return `Runs as you reach this step, then repeats every 4 mm as you keep moving ${row.value.path.at(-1)}. Move back to stop.`;
   if (!row.value.instant)
     return row.value.step.type === "none"
       ? "This is a waypoint. Keep moving to another step, or release here to do nothing."

@@ -23,8 +23,8 @@ const next = (step: GestureStep, d: Direction) => step[d] ?? null;
 const hasNext = (step: GestureStep) => DIRECTIONS.some((d) => !!step[d]);
 
 /** A step's own action, without the steps beyond it. */
-export function actionOf({ type, keys, system, repeat, mouse, macro }: GestureStep): ButtonAction {
-  return { type, keys, system, repeat, mouse, macro };
+export function actionOf({ type, keys, system, repeat, mouse, macro, layer, profile }: GestureStep): ButtonAction {
+  return { type, keys, system, repeat, mouse, macro, layer, profile };
 }
 
 /** A step with a new action, keeping the steps beyond it. */
@@ -43,13 +43,21 @@ export interface PathRow {
   leadsOn: boolean;
   /** One of the first four directions with nothing beyond: it runs as it's reached, and may hold or repeat. */
   instant: boolean;
+  /** Nothing goes further its own way, so it may repeat: it then runs as it's reached and again as the movement goes on. */
+  repeatable: boolean;
 }
 
 /** Every step, in pad order with each step's further steps right after it. */
 export function pathRows(preset: GesturePreset): PathRow[] {
   const rows: PathRow[] = [];
   const visit = (step: GestureStep, path: Direction[]) => {
-    rows.push({ path, step, leadsOn: hasNext(step), instant: path.length === 1 && !hasNext(step) });
+    rows.push({
+      path,
+      step,
+      leadsOn: hasNext(step),
+      instant: path.length === 1 && !hasNext(step),
+      repeatable: !next(step, path.at(-1)!),
+    });
     for (const d of DIRECTIONS) {
       const beyond = next(step, d);
       if (beyond) visit(beyond, [...path, d]);
@@ -110,23 +118,34 @@ export function fitProblem(preset: GesturePreset, path: Direction[]): string | n
 
 /**
  * The preset with a path added: steps on the way that aren't there yet do nothing, and the last waits for an
- * action. A first direction that now leads on can't hold or repeat any more, since it runs on release.
+ * action. A first direction that now leads on can't hold keys any more, since it runs on release, and a step that
+ * now goes further its own way stops repeating, since going on would repeat it.
  */
 export function addPath(preset: GesturePreset, path: Direction[]): GesturePreset {
-  const grow = (step: GestureStep, rest: Direction[], depth: number): GestureStep => {
+  const grow = (step: GestureStep, rest: Direction[], came: Direction): GestureStep => {
     if (!rest.length) return step;
     const [d, ...tail] = rest as [Direction, ...Direction[]];
-    const base = depth === 1 ? tapOnly(step) : step;
     const beyond = next(step, d) ?? (tail.length ? NO_STEP : { type: "press", keys: [] });
-    return { ...base, [d]: grow(beyond, tail, depth + 1) };
+    return { ...outgrown(step, d === came), [d]: grow(beyond, tail, d) };
   };
   const [first, ...rest] = path as [Direction, ...Direction[]];
-  return { ...preset, [first]: grow(preset[first], rest, 1) };
+  return { ...preset, [first]: grow(preset[first], rest, first) };
 }
 
-/** A step that runs once, on release: held keys become an inline shortcut, and repeating stops. */
-export const tapOnly = (step: GestureStep): GestureStep =>
-  step.type === "hold" || step.repeat ? { ...step, type: step.type === "hold" ? "press" : step.type, repeat: false } : step;
+/** A step that now leads on: held keys become an inline shortcut, and it stops repeating if it now goes further. */
+const outgrown = (step: GestureStep, further: boolean): GestureStep => ({
+  ...step,
+  ...(step.type === "hold" && { type: "press" as const }),
+  ...(further && step.repeat && { repeat: false }),
+});
+
+/** Whether adding `path` would change a step on the way, as `addPath` does. */
+export function addingChanges(preset: GesturePreset, path: Direction[]): boolean {
+  return path.slice(0, -1).some((came, k) => {
+    const step = stepAt(preset, path.slice(0, k + 1));
+    return !!step && (step.type === "hold" || (!!step.repeat && path[k + 1] === came));
+  });
+}
 
 /** An SVG path drawing every path from the centre, one `step` apart. */
 export function drawPaths(preset: GesturePreset, centre: number, step: number) {

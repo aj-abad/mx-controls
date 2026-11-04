@@ -347,6 +347,66 @@ public class GestureTrackerTests
         Assert.False(tracker.Step!.Action.IsSet);
     }
 
+    // Right, right repeats; up leads to a step that repeats and turns right.
+    private static readonly GestureActions Repeats = new(
+        ButtonAction.Nothing,
+        new GestureStep(ActionTypes.None, Up: new GestureStep(ActionTypes.Press, ["KeyU"], Repeat: true, Right: new GestureStep(ActionTypes.Press, ["KeyT"]))),
+        GestureStep.Nothing, GestureStep.Nothing,
+        new GestureStep(ActionTypes.None, Right: new GestureStep(ActionTypes.Press, ["KeyR"], Repeat: true)));
+
+    private GestureTracker OnRepeats()
+    {
+        var tracker = new GestureTracker();
+        tracker.Reset(Repeats);
+        Assert.Null(Move(tracker, -400, 300));
+        return tracker;
+    }
+
+    [Fact]
+    public void ARepeatingStepRunsAsItsReachedAndAgainAsTheMovementGoesOn()
+    {
+        var tracker = OnRepeats();
+        Move(tracker, 100, 0);
+        Assert.Equal(PathChange.Reached, tracker.Change);
+        Move(tracker, 230, 0);
+        Assert.Equal(PathChange.Ran, tracker.Change);
+        Assert.Equal("KeyR", Keys(tracker));
+        Move(tracker, 100, 0);
+        Assert.Equal(PathChange.None, tracker.Change);
+        Move(tracker, 60, 0);
+        Assert.Equal(PathChange.Ran, tracker.Change);
+        Move(tracker, 160, 0);
+        Assert.Equal(PathChange.Ran, tracker.Change);
+        Assert.Equal(2, tracker.Path.Count);
+        // It has run, so letting go runs nothing more.
+        Assert.Null(tracker.ReleaseStep);
+    }
+
+    [Fact]
+    public void BackingOffARepeatingStepStopsIt()
+    {
+        var tracker = OnRepeats();
+        Move(tracker, 100, 0);
+        Move(tracker, 230, 0);
+        Move(tracker, -80, 0);
+        Assert.Equal(PathChange.BackedOff, tracker.Change);
+        Assert.Equal([GestureDirection.Right], tracker.Path);
+        Move(tracker, 80, 0);
+        Assert.Equal(PathChange.Ran, tracker.Change);
+    }
+
+    [Fact]
+    public void ARepeatingStepCanStillTurn()
+    {
+        var tracker = OnRepeats();
+        Move(tracker, 0, -100);
+        Move(tracker, 0, -230);
+        Assert.Equal(PathChange.Ran, tracker.Change);
+        Move(tracker, 90, 0);
+        Assert.Equal([GestureDirection.Up, GestureDirection.Up, GestureDirection.Right], tracker.Path);
+        Assert.Equal("KeyT", tracker.ReleaseStep!.Keys![0]);
+    }
+
     [Fact]
     public void ARunStopsAtItsLastStep()
     {
