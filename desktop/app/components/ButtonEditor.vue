@@ -40,6 +40,8 @@
         :default-label="clickTab === 1 ? defaultLabel : undefined"
         :allow-hold="clickTab === 1 && !waits"
         :allow-repeat="clickTab === 1 && !waits"
+        :layers="clickTab === 1 && !waits ? 'hold' : 'toggle'"
+        profiles
         @update:model-value="setSelectedClick"
         @default="setClick(null)"
       />
@@ -117,9 +119,14 @@
 import { PopoverRoot, PopoverTrigger } from "reka-ui";
 import type { ButtonAction, ButtonBinding, ButtonState, Direction } from "~/composables/useAgent";
 
-const { button, binding, apply } = defineProps<{
+const { button, binding, inherited, apply } = defineProps<{
   button: ButtonState;
   binding: ButtonBinding | undefined;
+  /**
+   * In the second layer, the main layer's binding, which runs while this layer leaves the button unset; null for a
+   * main binding that's the button's own default. Undefined in the main layer.
+   */
+  inherited?: ButtonBinding | null;
   /** Sends the binding, null for the default; resolves false if the agent refused it. */
   apply: (binding: ButtonBinding | null) => Promise<boolean>;
 }>();
@@ -137,8 +144,14 @@ const OWN_ACTIONS: Record<string, ButtonAction> = {
   forward: { type: "click", mouse: "forward" },
   middle: { type: "click", mouse: "middle" },
 };
-const ownAction = computed(() => OWN_ACTIONS[button.id] ?? NOTHING);
-const defaultLabel = computed(() => MOUSE_BUTTONS[button.id] ?? "What it does on its own");
+const inLayer = computed(() => inherited !== undefined);
+/** What the click is before it's set: the main layer's click in the second layer, else what the button does on its own. */
+const ownAction = computed(() =>
+  inLayer.value && inherited ? (inherited.action ?? inherited.gesture?.click ?? NOTHING) : (OWN_ACTIONS[button.id] ?? NOTHING),
+);
+const defaultLabel = computed(() =>
+  inLayer.value ? "Same as main layer" : (MOUSE_BUTTONS[button.id] ?? "What it does on its own"),
+);
 
 /** Null clicks are unset; a null click is the button's default. */
 interface Draft {
@@ -174,6 +187,7 @@ const downgraded = ref("");
 
 const { state, attempt, lastGesture, lastClick } = useAgent();
 const presets = useGesturePresets();
+const view = useProfileView();
 const preset = computed(() => presets.find(draft.value.preset));
 
 /** Clicks have to wait or run on release, so a click can't keep a key down or repeat. */
@@ -225,6 +239,9 @@ watch(waits, (now) => {
   if (click.type === "hold") {
     draft.value.click = { ...click, type: "press", repeat: false };
     downgraded.value = `Since ${why}, the held keys became a keyboard shortcut that taps ${chordLabel(click.keys)} once.`;
+  } else if (click.type === "layer" && click.layer === "momentary") {
+    draft.value.click = { type: "layer", layer: "toggle" };
+    downgraded.value = `Since ${why}, holding the second layer became a toggle.`;
   } else if (click.repeat) {
     draft.value.click = { ...click, repeat: false };
     downgraded.value = `Since ${why}, the click no longer repeats.`;
@@ -269,8 +286,9 @@ const moreLines = computed(() => Math.max(0, presetRows.value.length - MAX_LINES
 const presetUsed = computed(() => {
   if (!preset.value) return "";
   const others = presets.usedBy(preset.value.id, {
-    profile: state.value?.activeProfile ?? "",
+    profile: view.profile.value?.id ?? "",
     button: button.id,
+    layer: view.second.value,
   });
   if (!others.length) return "Only this button uses it.";
   return `Shared with ${others.join(", ")}. Editing it changes ${others.length === 1 ? "both" : "all of them"}.`;

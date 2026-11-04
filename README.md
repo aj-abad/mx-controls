@@ -74,10 +74,12 @@ One JSON object per line over the pipe `mx-controls-agent`: a named pipe on Wind
 | Request | Params |
 | --- | --- |
 | `getState` | — |
-| `setBindings` | `{ bindings: [binding] }` for the active profile; see below |
-| `setThumbWheel` | `{ thumbWheel }` for the active profile; see below |
-| `switchProfile` | `{ id }` |
-| `createProfile` | `{ name, copyFrom?, icon? }`; the new profile becomes active, a copy of `copyFrom` or with every control at its default |
+| `setBindings` | `{ bindings: [binding], profile?, layer? }`; `profile` defaults to the running one, and `layer: true` sets the second layer; see below |
+| `setThumbWheel` | `{ thumbWheel, profile?, layer? }`; in the second layer, `thumbWheel: null` keeps the main layer's settings |
+| `switchProfile` | `{ id }` of a profile without programs; it becomes the chosen profile |
+| `setProfilePrograms` | `{ id, programs }`, executable file names such as `code.exe`, replacing the profile's |
+| `listPrograms` | —; answers `[{ id, name }]` for the programs with a window open |
+| `createProfile` | `{ name, copyFrom?, icon? }`; the new profile becomes the chosen one, a copy of `copyFrom` without its programs, or with every control at its default |
 | `renameProfile` | `{ id, name }` |
 | `setProfileIcon` | `{ id, icon }`; a Phosphor icon name in kebab case, or null for the profile's initial |
 | `deleteProfile` | `{ id }`; the last one stays |
@@ -130,7 +132,11 @@ An action's `type` is one of these:
 - `system`: runs `taskView`, `showDesktop`, `zoomIn` or `zoomOut`.
 - `click`: holds the mouse button `mouse`, `back`, `forward` or `middle`, for as long as the button is held. Back and forward are the side buttons apps take as history.
 - `macro`: runs the saved macro whose ID is `macro`.
+- `layer`: `layer: "momentary"` keeps the profile's second layer on while the button is held; `"toggle"` turns it on or off with each press.
+- `profile`: chooses the profile whose ID is `profile`, which must have no programs.
 - `none`: does nothing.
+
+Holding the layer needs a press that lasts, so it's only for a button's single click with no double click set. A gesture's click and its steps can toggle the layer, and the thumb wheel can't switch layers or profiles. Neither repeats.
 
 A macro is named and kept in the settings, belonging to no profile, so every action that runs it changes when it does. The state lists them as `macros`, and where each runs as `macroUses`:
 
@@ -161,7 +167,11 @@ Each click that runs sends a `click` event, `{ button, count }`; gesture directi
 
 The thumb wheel's settings are `{ mode, speed, inverted, left, right }`. `mode` is `scroll`, which scrolls sideways, or `actions`, which runs `left` or `right` once for each step, as a tap. `speed` is a percentage from 25 to 300. At its default, `scroll` at 100% and not inverted, the agent leaves the wheel alone, and plain inverted scrolling is a setting on the mouse. Anything else diverts the wheel, and the agent sends the scrolling itself through `MOUSEEVENTF_HWHEEL`. At 100%, one count of the wheel's native resolution scrolls one notch or runs one step. Which way the diverted wheel counts as right hasn't been checked on hardware yet; if it comes out backwards, flip the sign in `ThumbWheelMapper`.
 
-A profile holds bindings and thumb wheel settings. DPI, SmartShift and haptics are stored on the mouse and stay the same across profiles. The state carries `profiles` (`{ id, name, icon }`), `activeProfile`, and the active profile's `bindings` and `thumbWheel`.
+A profile holds bindings and thumb wheel settings, and a second layer of each. DPI, SmartShift and haptics are stored on the mouse and stay the same across profiles. The state carries `profiles`, each with everything it holds (`{ id, name, icon, programs, bindings, thumbWheel, layer: { bindings, thumbWheel } }`), so the app can edit one that isn't running; `activeProfile`, the one running, with its main `bindings` and `thumbWheel` repeated at the top; `selectedProfile`; `layerActive`; and `followsPrograms`, false where the platform can't tell which program is in front.
+
+**Layers.** The second layer runs over the main one while a button holding it is down, or since a toggle turned it on. A button it leaves unbound runs its main binding, and a null thumb wheel keeps the main layer's. Every button bound in either layer stays diverted, so switching layers writes nothing to the mouse, except to change raw XY for a button that's a gesture in one layer and not the other. A press runs the binding it went down with until its release, whatever the layer does meanwhile. A button bound only in the second layer still does its own job in the main one: back, forward and middle are clicked for it, and Smart Shift switches the wheel's ratchet. A profile that starts running starts on its main layer.
+
+**Programs.** A profile can follow programs, by executable file name. While one of them is in front, that profile runs; otherwise the chosen profile, `selectedProfile`, does. Only a profile without programs can be chosen, by `switchProfile` or a `profile` action, and one profile always stays without programs; if the chosen one gains programs or is deleted, the first profile without programs takes over. A program follows at most one profile. On Windows the agent follows the foreground window with a `SetWinEventHook` for `EVENT_SYSTEM_FOREGROUND`, so a switch takes effect as it happens.
 
 Easy-Switch comes from CHANGE_HOST and HOSTS_INFO, read with Solaar's layouts. `device.hosts` lists each channel, whether a computer is paired on it, and the name that computer gave the mouse. Switching sends the request without waiting for an answer, because the mouse leaves at once. The agent notices it has gone and connects again when it comes back.
 

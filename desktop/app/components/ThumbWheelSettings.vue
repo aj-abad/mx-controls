@@ -1,5 +1,11 @@
 <template>
-  <div class="flex flex-col gap-6">
+  <div v-if="inherits" class="flex flex-col items-start gap-3 rounded-xl bg-fill/60 p-4 ring-1 ring-line ring-inset">
+    <p class="text-[13px] leading-relaxed text-ink-2">
+      In the second layer the thumb wheel keeps what it does in the main layer.
+    </p>
+    <UiButton size="sm" @click="customize">Set it for this layer</UiButton>
+  </div>
+  <div v-else class="flex flex-col gap-6">
     <UiSegmented v-model="draft.mode" :options="MODE_OPTIONS" label="What the thumb wheel does" @update:model-value="changeMode" />
 
     <div class="flex flex-col gap-4" :class="draft.mode !== 'actions' && 'opacity-40'" :inert="draft.mode !== 'actions' || undefined">
@@ -43,6 +49,10 @@
     <SettingRow label="Invert direction" label-for="thumb-invert" description="Swaps left and right.">
       <UiSwitch id="thumb-invert" v-model="draft.inverted" @update:model-value="save" />
     </SettingRow>
+
+    <button v-if="view.second.value" type="button" class="self-start text-xs text-ink-3 hover:text-ink" @click="inherit">
+      Use the main layer's settings instead
+    </button>
   </div>
 </template>
 
@@ -50,7 +60,10 @@
 import type { ButtonAction, DeviceState, ThumbWheelSettings } from "~/composables/useAgent";
 
 defineProps<{ device: DeviceState }>();
-const { state, attempt } = useAgent();
+const { attempt } = useAgent();
+const view = useProfileView();
+/** The second layer keeps the main layer's settings until it's given its own. */
+const inherits = computed(() => view.second.value && !view.thumbWheel.value);
 
 const MODE_OPTIONS = [
   { value: "scroll", label: "Scroll sideways" },
@@ -72,9 +85,18 @@ const STEP_PRESETS = [
 
 const draft = ref<ThumbWheelSettings>({ mode: "scroll", speed: 100, inverted: false });
 watchEffect(() => {
-  const saved = state.value?.thumbWheel;
+  const saved = view.thumbWheel.value ?? view.mainThumbWheel.value;
   if (saved) draft.value = { ...saved };
 });
+
+function customize() {
+  draft.value = { ...(view.mainThumbWheel.value ?? draft.value) };
+  save();
+}
+
+function inherit() {
+  void attempt("setThumbWheel", { thumbWheel: null, ...view.target() }, "Couldn't change the thumb wheel");
+}
 
 const presetAction = (id: string): ButtonAction => presetById(id)?.action ?? NOTHING;
 
@@ -97,6 +119,6 @@ const unfinished = (action: ButtonAction | null | undefined) =>
 function save() {
   const next = draft.value;
   if (next.mode === "actions" && (unfinished(next.left) || unfinished(next.right))) return;
-  void attempt("setThumbWheel", { thumbWheel: next }, "Couldn't change the thumb wheel");
+  void attempt("setThumbWheel", { thumbWheel: { ...next }, ...view.target() }, "Couldn't change the thumb wheel");
 }
 </script>

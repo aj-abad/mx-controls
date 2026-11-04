@@ -7,7 +7,9 @@ namespace MxControls.Actions;
 /// What a button, or one direction of a gesture, does. <see cref="Type"/> is one of <see cref="ActionTypes"/>:
 /// <c>hold</c> keeps <see cref="Keys"/> down for as long as the button is held, <c>press</c> taps them,
 /// <c>system</c> runs <see cref="System"/>, <c>click</c> holds the mouse button <see cref="Mouse"/>,
-/// <c>macro</c> runs the <see cref="Actions.Macro"/> called <see cref="Macro"/>, and <c>none</c> does nothing.
+/// <c>macro</c> runs the <see cref="Actions.Macro"/> called <see cref="Macro"/>, <c>layer</c> turns on the profile's
+/// second layer as <see cref="Layer"/> says, <c>profile</c> switches to the profile <see cref="Profile"/>, and
+/// <c>none</c> does nothing.
 /// </summary>
 /// <param name="Keys"><c>KeyboardEvent.code</c> names in press order, modifiers first.</param>
 /// <param name="Repeat">
@@ -17,19 +19,28 @@ namespace MxControls.Actions;
 /// </param>
 /// <param name="Mouse">For <c>click</c>: one of <see cref="MouseButtons"/>.</param>
 /// <param name="Macro">For <c>macro</c>: the macro's ID.</param>
+/// <param name="Layer">For <c>layer</c>: one of <see cref="LayerModes"/>.</param>
+/// <param name="Profile">For <c>profile</c>: the ID of a profile with no programs of its own.</param>
 public sealed record ButtonAction(
     string Type, IReadOnlyList<string>? Keys = null, string? System = null, bool Repeat = false, string? Mouse = null,
-    string? Macro = null)
+    string? Macro = null, string? Layer = null, string? Profile = null)
 {
     public static readonly ButtonAction Nothing = new(ActionTypes.None);
 
     [JsonIgnore]
     public bool IsSet => Type != ActionTypes.None;
 
+    /// <summary>Whether it keeps the second layer on for as long as the button is held.</summary>
+    [JsonIgnore]
+    public bool HoldsLayer => Type == ActionTypes.Layer && Layer == LayerModes.Momentary;
+
     public string? Problem(IPlatform platform) => Type switch
     {
         ActionTypes.None => null,
         ActionTypes.Macro => string.IsNullOrEmpty(Macro) ? "A macro action needs a macro." : null,
+        ActionTypes.Layer or ActionTypes.Profile when Repeat => "Switching layers or profiles can't repeat.",
+        ActionTypes.Layer => Layer is LayerModes.Momentary or LayerModes.Toggle ? null : $"Unknown layer mode '{Layer}'.",
+        ActionTypes.Profile => string.IsNullOrEmpty(Profile) ? "A profile action needs a profile." : null,
         ActionTypes.Hold or ActionTypes.Press when Keys is not { Count: > 0 } => "A key action needs at least one key.",
         ActionTypes.Hold or ActionTypes.Press => Keys!.FirstOrDefault(k => !platform.Input.Supports(k)) is { } key
             ? $"This platform can't send the key '{key}'."
@@ -48,6 +59,18 @@ public static class ActionTypes
     public const string System = "system";
     public const string Click = "click";
     public const string Macro = "macro";
+    public const string Layer = "layer";
+    public const string Profile = "profile";
+}
+
+/// <summary>
+/// Names for <see cref="ButtonAction.Layer"/>: <c>momentary</c> keeps the second layer on while the button is held,
+/// and <c>toggle</c> turns it on or off with each press.
+/// </summary>
+public static class LayerModes
+{
+    public const string Momentary = "momentary";
+    public const string Toggle = "toggle";
 }
 
 /// <summary>Names for <see cref="ButtonAction.Mouse"/>. Back and forward are the side buttons apps use for history.</summary>
@@ -110,6 +133,8 @@ public sealed record GestureActions(
     {
         if (step.Action.Problem(platform) is { } problem)
             return problem;
+        if (step.Action.HoldsLayer)
+            return "A gesture step can toggle the second layer but not hold it.";
         // Only the first four directions run as they're reached; every other step taps when the button comes up.
         if ((run > 1 || turns > 0 || !step.IsLeaf) && (step.Type == ActionTypes.Hold || step.Repeat))
             return "Only a first direction with nothing beyond it can hold keys or repeat.";
@@ -140,7 +165,8 @@ public sealed record GestureActions(
 /// </summary>
 public sealed record GestureStep(
     string Type, IReadOnlyList<string>? Keys = null, string? System = null, bool Repeat = false, string? Mouse = null,
-    string? Macro = null, GestureStep? Up = null, GestureStep? Down = null, GestureStep? Left = null, GestureStep? Right = null)
+    string? Macro = null, GestureStep? Up = null, GestureStep? Down = null, GestureStep? Left = null, GestureStep? Right = null,
+    string? Layer = null, string? Profile = null)
 {
     public static readonly GestureStep Nothing = new(ActionTypes.None);
 
@@ -148,7 +174,7 @@ public sealed record GestureStep(
         [GestureDirection.Up, GestureDirection.Down, GestureDirection.Left, GestureDirection.Right];
 
     [JsonIgnore]
-    public ButtonAction Action => new(Type, Keys, System, Repeat, Mouse, Macro);
+    public ButtonAction Action => new(Type, Keys, System, Repeat, Mouse, Macro, Layer, Profile);
 
     /// <summary>Every step: this one, then the ones beyond it.</summary>
     [JsonIgnore]
@@ -159,7 +185,7 @@ public sealed record GestureStep(
     {
         var action = change(Action);
         return new(action.Type, action.Keys, action.System, action.Repeat, action.Mouse, action.Macro,
-            Up?.Map(change), Down?.Map(change), Left?.Map(change), Right?.Map(change));
+            Up?.Map(change), Down?.Map(change), Left?.Map(change), Right?.Map(change), action.Layer, action.Profile);
     }
 
     [JsonIgnore]
@@ -176,7 +202,8 @@ public sealed record GestureStep(
     /// <summary>Whether the steps beyond this one turn off the way it was reached.</summary>
     public bool Branches(GestureDirection came) => Across(came).Any(d => this[d] is not null);
 
-    public static GestureStep Of(ButtonAction action) => new(action.Type, action.Keys, action.System, action.Repeat, action.Mouse, action.Macro);
+    public static GestureStep Of(ButtonAction action) =>
+        new(action.Type, action.Keys, action.System, action.Repeat, action.Mouse, action.Macro, Layer: action.Layer, Profile: action.Profile);
 
     public static GestureDirection Opposite(GestureDirection direction) => direction switch
     {
@@ -227,8 +254,8 @@ public sealed record ClickActions(ButtonAction Single, ButtonAction? Double, But
     {
         if (Triple is { IsSet: true } && Double is not { IsSet: true })
             return "A triple click needs a double click too.";
-        if (Most > 1 && new[] { Single, Double, Triple }.Any(a => a is { Type: ActionTypes.Hold } or { Repeat: true }))
-            return "With a double click set, each click runs once, so none of them can hold keys or repeat.";
+        if (Most > 1 && new[] { Single, Double, Triple }.Any(a => a is { Type: ActionTypes.Hold } or { Repeat: true } or { HoldsLayer: true }))
+            return "With a double click set, each click runs once, so none of them can hold keys or a layer, or repeat.";
         return new[] { Double, Triple }.Select(a => a?.Problem(platform)).FirstOrDefault(p => p is not null);
     }
 }
@@ -269,13 +296,24 @@ public sealed record ButtonBinding(
             ActionMode when Action is null => "An action binding needs an action.",
             ActionMode => Action.Problem(platform) ?? Clicks.Problem(platform),
             GestureMode when Gesture is not null =>
-                Gesture.Click.Problem(platform) ?? Gesture.MovesProblem(platform) ?? Clicks.Problem(platform),
+                Gesture.Click.Problem(platform) ?? Gesture.MovesProblem(platform) ?? Clicks.Problem(platform) ?? ClickHoldsLayer(Gesture.Click),
             GestureMode when Preset is null => "A gesture binding needs a preset or its five actions.",
             GestureMode when Action is null => "A gesture binding needs an action for its click.",
-            GestureMode => Action.Problem(platform) ?? Clicks.Problem(platform),
+            GestureMode => Action.Problem(platform) ?? Clicks.Problem(platform) ?? ClickHoldsLayer(Action),
             _ => $"Unknown mode '{Mode}'.",
         };
     }
+
+    private static string? ClickHoldsLayer(ButtonAction click) =>
+        click.HoldsLayer ? "A gesture's click runs when you let go, so it can toggle the second layer but not hold it." : null;
+
+    /// <summary>Every action it runs, the moves of a gesture carried whole included.</summary>
+    [JsonIgnore]
+    public IEnumerable<ButtonAction> AllActions =>
+        new[] { Action, DoubleClick, TripleClick }.OfType<ButtonAction>().Concat(Gesture is { } g
+            ? [g.Click, .. new[] { g.DoubleClick, g.TripleClick }.OfType<ButtonAction>(),
+                .. new[] { g.Up, g.Down, g.Left, g.Right }.SelectMany(s => s.All).Select(s => s.Action)]
+            : []);
 
     /// <summary>
     /// This binding as the engine runs it: a gesture with its preset's moves filled in. One whose preset has gone

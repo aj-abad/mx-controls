@@ -5,8 +5,23 @@ export function initialState(): AgentState {
   return {
     connected: true, optionsPlusRunning: false, error: null, revision: 0,
     startAtLogin: false, multiClickMs: 300,
-    profiles: [{ id: "default", name: "Default", icon: null }, { id: "work", name: "Work", icon: "briefcase" }],
+    profiles: [
+      {
+        id: "default", name: "Default", icon: null, programs: [],
+        bindings: [{ button: "back", mode: "action", action: { type: "macro", macro: "snapleft" } }],
+        thumbWheel: { mode: "scroll", speed: 100, inverted: false },
+        layer: { bindings: [], thumbWheel: null },
+      },
+      {
+        id: "work", name: "Work", icon: "briefcase", programs: [], bindings: [],
+        thumbWheel: { mode: "scroll", speed: 100, inverted: false },
+        layer: { bindings: [], thumbWheel: null },
+      },
+    ],
     activeProfile: "default",
+    selectedProfile: "default",
+    layerActive: false,
+    followsPrograms: false,
     bindings: [{ button: "back", mode: "action", action: { type: "macro", macro: "snapleft" } }],
     thumbWheel: { mode: "scroll", speed: 100, inverted: false },
     builtInPresets: [], presetUses: [], macroUses: [{ macro: "snapleft", profile: "default", button: "back" }],

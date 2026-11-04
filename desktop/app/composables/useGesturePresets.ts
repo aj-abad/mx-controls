@@ -23,10 +23,14 @@ export function useGesturePresets() {
   const profileName = (id: string) => state.value?.profiles.find((p) => p.id === id)?.name ?? id;
 
   /** "Gesture button · Work" for each button following the preset, leaving out `except`. */
-  function usedBy(id: string, except?: { profile: string; button: string }) {
+  function usedBy(id: string, except?: { profile: string; button: string; layer?: boolean }) {
     return (state.value?.presetUses ?? [])
-      .filter((use) => use.preset === id && !(except && use.profile === except.profile && use.button === except.button))
-      .map((use) => `${buttonLabel(use.button)} · ${profileName(use.profile)}`);
+      .filter(
+        (use) =>
+          use.preset === id &&
+          !(except && use.profile === except.profile && use.button === except.button && !!use.layer === !!except.layer),
+      )
+      .map((use) => `${buttonLabel(use.button)} · ${profileName(use.profile)}${use.layer ? " (second layer)" : ""}`);
   }
 
   const save = (preset: GesturePreset) => attempt("setGesturePreset", { preset }, `Couldn't save “${preset.name}”`);

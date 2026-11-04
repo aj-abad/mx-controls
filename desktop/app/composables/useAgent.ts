@@ -5,12 +5,19 @@ import { listen } from "@tauri-apps/api/event";
 export interface AgentState {
   connected: boolean;
   device: DeviceState | null;
-  /** The active profile's bindings. */
+  /** The running profile's main bindings. */
   bindings: ButtonBinding[];
-  /** The active profile's thumb wheel settings. */
+  /** The running profile's main thumb wheel settings. */
   thumbWheel: ThumbWheelSettings;
   profiles: ProfileSummary[];
+  /** The profile running now: the one the program in front follows, or else `selectedProfile`. */
   activeProfile: string;
+  /** The profile chosen by hand or by a button; never one that follows programs. */
+  selectedProfile: string;
+  /** Whether the running profile's second layer is on. */
+  layerActive: boolean;
+  /** Whether the agent can tell which program is in front, so profiles can follow programs. */
+  followsPrograms: boolean;
   startAtLogin: boolean;
   optionsPlusRunning: boolean;
   error: string | null;
@@ -22,8 +29,8 @@ export interface AgentState {
   gesturePresets: GesturePreset[];
   /** The built-in presets as they come, to tell an edited one and reset it. */
   builtInPresets: GesturePreset[];
-  /** Which buttons follow which preset, in every profile. */
-  presetUses: { preset: string; profile: string; button: string }[];
+  /** Which buttons follow which preset, in every profile; `layer` for the second layer. */
+  presetUses: { preset: string; profile: string; button: string; layer?: boolean }[];
   macros: Macro[];
   /** Where each macro runs: a button or the thumb wheel in a profile, or a step of a gesture preset. */
   macroUses: MacroUse[];
@@ -53,6 +60,8 @@ export interface MacroUse {
   profile?: string | null;
   button?: string | null;
   preset?: string | null;
+  /** In the profile's second layer. */
+  layer?: boolean;
 }
 
 export interface DeviceState {
@@ -76,6 +85,19 @@ export interface ProfileSummary {
   name: string;
   /** A key of `PROFILE_ICONS`, or null for the profile's initial. */
   icon: string | null;
+  /** Program IDs, such as "chrome.exe", that run it while they're in front; empty for one chosen by hand. */
+  programs: string[];
+  bindings: ButtonBinding[];
+  thumbWheel: ThumbWheelSettings;
+  /** The second layer: a button it leaves unbound runs its main binding, and a null thumb wheel keeps the main one. */
+  layer: { bindings: ButtonBinding[]; thumbWheel: ThumbWheelSettings | null };
+}
+
+/** A program with a window open, as `listPrograms` gives it. */
+export interface ProgramInfo {
+  /** The executable's file name in lower case. */
+  id: string;
+  name: string;
 }
 
 export interface HostsInfo {
@@ -115,7 +137,7 @@ export interface ButtonState {
 
 /** Mirrors `agent/MxControls.Core/Actions/ButtonAction.cs`. */
 export interface ButtonAction {
-  type: "none" | "hold" | "press" | "system" | "click" | "macro";
+  type: "none" | "hold" | "press" | "system" | "click" | "macro" | "layer" | "profile";
   /** `KeyboardEvent.code` names in press order, modifiers first. */
   keys?: string[] | null;
   system?: string | null;
@@ -124,6 +146,10 @@ export interface ButtonAction {
   mouse?: string | null;
   /** For `macro`: the macro's ID. */
   macro?: string | null;
+  /** For `layer`: hold the second layer on while pressed, or turn it on and off with each press. */
+  layer?: "momentary" | "toggle" | null;
+  /** For `profile`: the ID of a profile that follows no programs. */
+  profile?: string | null;
 }
 
 export type Direction = "up" | "down" | "left" | "right";
@@ -250,15 +276,20 @@ const OPTIMISTIC = new Set([
   "setHostName",
   "setGesturePreset",
   "setMacro",
+  "setProfilePrograms",
 ]);
 
-/** Each preset and macro is its own setting, so changes to two in a row don't stand in for each other. */
-const settingKey = (method: string, params: Record<string, unknown>) =>
-  method === "setGesturePreset"
-    ? `${method}:${(params.preset as { id: string }).id}`
-    : method === "setMacro"
-      ? `${method}:${(params.macro as { id: string }).id}`
-      : method;
+/**
+ * Each preset, macro, and layer of each profile is its own setting, so changes to two in a row don't stand in for
+ * each other.
+ */
+function settingKey(method: string, params: Record<string, unknown>) {
+  if (method === "setGesturePreset") return `${method}:${(params.preset as { id: string }).id}`;
+  if (method === "setMacro") return `${method}:${(params.macro as { id: string }).id}`;
+  if (method === "setBindings" || method === "setThumbWheel") return `${method}:${params.profile ?? ""}:${!!params.layer}`;
+  if (method === "setProfilePrograms") return `${method}:${params.id}`;
+  return method;
+}
 const DEBOUNCE_MS = 150;
 
 interface Overlay {
@@ -295,6 +326,7 @@ const state = computed(() => {
 
 async function call<T = AgentState>(method: string, params: Record<string, unknown> = {}) {
   if (!inTauri()) {
+    if (method === "listPrograms") return previewPrograms() as T;
     const current = agentState.value!;
     receive({ ...previewCall(current, method, params), revision: current.revision + 1 });
     return agentState.value as T;

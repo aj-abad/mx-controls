@@ -58,11 +58,32 @@ public interface ILoginItem
     void Disable(string name);
 }
 
+/// <summary>A program with a window: its ID, which profiles bind to, and a name to show.</summary>
+/// <param name="Id">The executable's file name in lower case, such as "chrome.exe" on Windows.</param>
+public sealed record ProgramInfo(string Id, string Name);
+
+/// <summary>Which programs are running, and which one is in front.</summary>
+public interface IPrograms
+{
+    /// <summary>
+    /// Calls <paramref name="changed"/> with the ID of the program in front, once at the start and then each time
+    /// another program comes to the front; null when it can't tell. It runs on the platform's own thread and must
+    /// return quickly. Disposing the result stops it.
+    /// </summary>
+    IDisposable WatchForeground(Action<string?> changed);
+
+    /// <summary>The programs with a window open, each once.</summary>
+    IReadOnlyList<ProgramInfo> Running();
+}
+
 public interface IPlatform
 {
     IHidBackend Hid { get; }
     IInputInjector Input { get; }
     ILoginItem LoginItem { get; }
+
+    /// <summary>Null where the platform can't tell which program is in front; profiles then never follow programs.</summary>
+    IPrograms? Programs { get; }
 
     /// <summary>Null where the platform can't take over the keyboard; the app then records keys in its own window.</summary>
     IKeyCapture? KeyCapture { get; }

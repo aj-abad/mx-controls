@@ -6,19 +6,27 @@ using MxControls.Platform;
 namespace MxControls.Actions;
 
 /// <summary>
-/// Runs button bindings: each bound control is diverted, gesture controls with raw XY so the pointer stays still
-/// while they're held. Presses, releases and movement become actions. <see cref="UpdateAsync"/> changes the
-/// bindings, writing only the controls whose diversion changes. Disposing releases held keys and restores each
-/// control's original diversion. Callers serialize the async methods.
+/// Runs button bindings in two layers: each control bound in either is diverted, gesture controls with raw XY so the
+/// pointer stays still while they're held. Presses, releases and movement become actions. A press runs the binding
+/// of the layer that was on when it went down, to its release. <see cref="UpdateAsync"/> changes the bindings,
+/// writing only the controls whose diversion changes. Disposing releases held keys and restores each control's
+/// original diversion. Callers serialize the async methods.
 /// </summary>
 public sealed class ButtonEngine : IAsyncDisposable
 {
     public static readonly TimeSpan RepeatDelay = TimeSpan.FromMilliseconds(300);
     public static readonly TimeSpan RepeatInterval = TimeSpan.FromMilliseconds(200);
 
+    /// <summary>What the buttons with a known action of their own do, for a layer that leaves them unbound.</summary>
+    private static readonly Dictionary<ushort, ButtonBinding> Own = new[] { MouseButtons.Back, MouseButtons.Forward, MouseButtons.Middle }
+        .ToDictionary(id => ReprogControls.KnownButtons[id],
+            id => new ButtonBinding(id, ButtonBinding.ActionMode, new ButtonAction(ActionTypes.Click, Mouse: id)));
+
     private readonly MxDevice _device;
     private readonly IPlatform _platform;
-    private Dictionary<ushort, ButtonBinding> _bindings = [];
+    private readonly LayerSwitch _layers = new();
+    // The binding each held control went down with, so a layer change mid-press doesn't change what it lets go of.
+    private readonly Dictionary<ushort, ButtonBinding> _pressed = [];
     // How each control was before the first diversion, kept after it's restored so its owner stays known.
     private readonly Dictionary<ushort, ControlReporting> _original = [];
     // What the mouse has been told: each diverted control and whether with raw XY.
@@ -30,8 +38,16 @@ public sealed class ButtonEngine : IAsyncDisposable
     private ushort? _gestureButton;
     private int _hapticSending;
     // Per control, made on its first click, and kept so a timer firing late still finds what it belongs to.
-    private readonly Dictionary<ushort, (ClickCounter Counter, Timer Timer)> _clicks = [];
+    private readonly Dictionary<ushort, Clicks> _clicks = [];
     private int _multiClickMs = ClickCounter.DefaultWindowMs;
+
+    private sealed class Clicks(ClickCounter counter, Timer timer)
+    {
+        public ClickCounter Counter { get; } = counter;
+        public Timer Timer { get; } = timer;
+        /// <summary>The binding the clicks waiting were counted for.</summary>
+        public ButtonBinding? Binding { get; set; }
+    }
 
     /// <summary>
     /// A gesture's path changed or ran: control ID, the directions taken ("up", "down", "left" or "right", one per
@@ -41,6 +57,22 @@ public sealed class ButtonEngine : IAsyncDisposable
 
     /// <summary>A click ran: control ID and 1, 2 or 3 for a single, double or triple click.</summary>
     public event Action<ushort, int>? ClickFired;
+
+    /// <summary>
+    /// The second layer turned on (true) or off. Controls bound as a gesture in one layer and not the other change
+    /// their raw XY with it; <see cref="SyncLayerAsync"/> writes that. Raised inside the engine's lock: don't block.
+    /// </summary>
+    public event Action<bool>? LayerChanged;
+
+    /// <summary>A <c>profile</c> action ran, with the profile's ID. Raised inside the engine's lock: don't block.</summary>
+    public event Action<string>? ProfileRequested;
+
+    /// <summary>
+    /// A control went down in a layer that leaves it unbound, where nothing can stand in for what it does on its
+    /// own, such as Smart Shift's switch to free spin. Raised inside the engine's lock: don't block.
+    /// </summary>
+    public event Action<ushort>? NativePressed;
+
     public event Action<Exception>? Failed;
 
     /// <summary>Waveform played when a gesture direction fires, or null for none.</summary>
@@ -73,15 +105,26 @@ public sealed class ButtonEngine : IAsyncDisposable
             lock (_gate)
             {
                 _multiClickMs = value;
-                foreach (var (counter, _) in _clicks.Values)
-                    counter.Window = value;
+                foreach (var clicks in _clicks.Values)
+                    clicks.Counter.Window = value;
             }
+        }
+    }
+
+    /// <summary>Whether the second layer is on.</summary>
+    public bool LayerActive
+    {
+        get
+        {
+            lock (_gate)
+                return _layers.Active;
         }
     }
 
     /// <param name="macros">The macros <c>macro</c> actions run, which can change while the engine runs.</param>
     public static async Task<ButtonEngine> StartAsync(
-        MxDevice device, IPlatform platform, IEnumerable<ButtonBinding> bindings, MacroLibrary? macros = null)
+        MxDevice device, IPlatform platform, IEnumerable<ButtonBinding> bindings, MacroLibrary? macros = null,
+        IEnumerable<ButtonBinding>? second = null)
     {
         var engine = new ButtonEngine(device, platform, macros);
         device.Channel.EventReceived += engine.OnEvent;
@@ -89,7 +132,7 @@ public sealed class ButtonEngine : IAsyncDisposable
         {
             if (device.Has(FeatureIds.AdjustableDpi))
                 engine.Dpi = (await device.Pointer.GetDpiAsync()).Current;
-            await engine.UpdateAsync(bindings);
+            await engine.UpdateAsync(bindings, second);
             return engine;
         }
         catch
@@ -103,37 +146,61 @@ public sealed class ButtonEngine : IAsyncDisposable
     public bool? DivertedBefore(ushort cid) => _original.TryGetValue(cid, out var original) ? original.Diverted : null;
 
     /// <summary>
-    /// Runs these bindings from now on. Only controls whose diversion changes are written, so a failure partway
+    /// Runs these bindings from now on: <paramref name="bindings"/> as the main layer, and <paramref name="second"/>
+    /// over it while the second layer is on. Only controls whose diversion changes are written, so a failure partway
     /// leaves the others working, and running the old bindings again puts back what was written.
     /// </summary>
-    public async Task UpdateAsync(IEnumerable<ButtonBinding> bindings)
+    /// <param name="resetLayer">Go back to the main layer, as a profile that has just started running does.</param>
+    public async Task UpdateAsync(IEnumerable<ButtonBinding> bindings, IEnumerable<ButtonBinding>? second = null, bool resetLayer = false)
     {
-        var next = new Dictionary<ushort, ButtonBinding>();
+        var main = Map(bindings);
+        var over = Map(second ?? []);
+
+        lock (_gate)
+        {
+            var (oldMain, oldSecond) = (_layers.Main, _layers.Second);
+            bool before = _layers.Active;
+            _layers.Set(main, over);
+            if (resetLayer)
+                _layers.Reset();
+            // A held control whose binding changes lets go of what it was doing.
+            foreach (var (cid, pinned) in _pressed.ToArray())
+            {
+                if (Effective(cid) == pinned)
+                    continue;
+                _runner.End(cid);
+                _pressed.Remove(cid);
+                _layers.Release(cid);
+                if (_gestureButton == cid)
+                    _gestureButton = null;
+            }
+            foreach (var cid in oldMain.Keys.Concat(oldSecond.Keys).Concat(_layers.Controls).Distinct())
+            {
+                if (oldMain.GetValueOrDefault(cid) != main.GetValueOrDefault(cid) || oldSecond.GetValueOrDefault(cid) != over.GetValueOrDefault(cid))
+                    DropClicks(cid);
+            }
+            if (_layers.Active != before)
+                LayerChanged?.Invoke(_layers.Active);
+        }
+        await WriteAsync();
+    }
+
+    private Dictionary<ushort, ButtonBinding> Map(IEnumerable<ButtonBinding> bindings)
+    {
+        var map = new Dictionary<ushort, ButtonBinding>();
         foreach (var binding in bindings)
         {
             if (binding.Problem(_platform) is { } problem)
                 throw new ArgumentException(problem, nameof(bindings));
             if (binding.IsGesture && binding.Gesture is null)
                 throw new ArgumentException($"{binding.Button}: resolve the gesture preset first.", nameof(bindings));
-            next[ReprogControls.KnownButtons[binding.Button]] = binding;
+            map[ReprogControls.KnownButtons[binding.Button]] = binding;
         }
-
-        lock (_gate)
-        {
-            // A held control whose binding changes lets go of what it was doing.
-            foreach (var (cid, binding) in _bindings)
-            {
-                if (next.TryGetValue(cid, out var kept) && kept == binding)
-                    continue;
-                _runner.End(cid);
-                DropClicks(cid);
-                if (_gestureButton == cid)
-                    _gestureButton = null;
-            }
-            _bindings = next;
-        }
-        await WriteAsync(next);
+        return map;
     }
+
+    /// <summary>What a diverted control runs now: its binding in the layer that's on, or what it does on its own.</summary>
+    private ButtonBinding? Effective(ushort cid) => _layers[cid] ?? Own.GetValueOrDefault(cid);
 
     /// <summary>
     /// Lets go of every press without running anything, after the mouse reconnected: whatever was held when the link
@@ -148,7 +215,10 @@ public sealed class ButtonEngine : IAsyncDisposable
             foreach (var cid in _held)
                 DropClicks(cid);
             _held = [];
+            _pressed.Clear();
             _gestureButton = null;
+            if (_layers.ReleaseAll())
+                LayerChanged?.Invoke(_layers.Active);
         }
     }
 
@@ -156,25 +226,32 @@ public sealed class ButtonEngine : IAsyncDisposable
     public Task DivertAsync()
     {
         _diverted.Clear();
-        return WriteAsync(_bindings);
+        return WriteAsync();
     }
 
-    private async Task WriteAsync(IReadOnlyDictionary<ushort, ButtonBinding> bindings)
+    /// <summary>Writes the raw XY each control needs in the layer that's on now, after <see cref="LayerChanged"/>.</summary>
+    public Task SyncLayerAsync() => WriteAsync();
+
+    private async Task WriteAsync()
     {
-        foreach (var cid in _diverted.Keys.Where(cid => !bindings.ContainsKey(cid)).ToArray())
+        Dictionary<ushort, bool> wanted;
+        lock (_gate)
+            wanted = _layers.Controls.ToDictionary(cid => cid, cid => Effective(cid)?.IsGesture ?? false);
+
+        foreach (var cid in _diverted.Keys.Where(cid => !wanted.ContainsKey(cid)).ToArray())
         {
             var original = _original[cid];
             await _device.Controls.SetDivertAsync(cid, original.Diverted, original.RawXY);
             _diverted.Remove(cid);
         }
-        foreach (var (cid, binding) in bindings)
+        foreach (var (cid, rawXY) in wanted)
         {
-            if (_diverted.TryGetValue(cid, out var rawXY) && rawXY == binding.IsGesture)
+            if (_diverted.TryGetValue(cid, out var written) && written == rawXY)
                 continue;
             if (!_original.ContainsKey(cid))
                 _original[cid] = await _device.Controls.GetReportingAsync(cid);
-            await _device.Controls.SetDivertAsync(cid, divert: true, rawXY: binding.IsGesture);
-            _diverted[cid] = binding.IsGesture;
+            await _device.Controls.SetDivertAsync(cid, divert: true, rawXY: rawXY);
+            _diverted[cid] = rawXY;
         }
     }
 
@@ -200,14 +277,24 @@ public sealed class ButtonEngine : IAsyncDisposable
     {
         foreach (var cid in now.Except(_held))
         {
-            if (!_bindings.TryGetValue(cid, out var binding))
+            // Another app's diverted controls are reported too; only ours are ours to act on.
+            if (!_layers.Controls.Contains(cid))
                 continue;
+            if (Effective(cid) is not { } binding)
+            {
+                NativePressed?.Invoke(cid);
+                continue;
+            }
             if (_clicks.TryGetValue(cid, out var clicks))
             {
                 clicks.Timer.Change(Timeout.Infinite, Timeout.Infinite);
                 if (clicks.Counter.Press(Now) is { } late)
                     RunClicks(cid, late);
+                // Clicks counted in the other layer run as they were, and this press starts a count of its own.
+                if (clicks.Binding is not null && clicks.Binding != binding)
+                    InterruptClicks(cid);
             }
+            _pressed[cid] = binding;
             if (binding.IsGesture)
             {
                 _gestureButton = cid;
@@ -216,53 +303,96 @@ public sealed class ButtonEngine : IAsyncDisposable
             else if (binding.Clicks.Most == 1)
             {
                 // Nothing waits for a second click, so the action lasts as long as the press, as it always has.
-                _runner.Begin(cid, binding.Action!);
+                Begin(cid, binding.Action!);
             }
         }
         foreach (var cid in _held.Except(now))
         {
-            if (!_bindings.TryGetValue(cid, out var binding))
+            if (!_pressed.Remove(cid, out var binding))
                 continue;
             if (binding.IsGesture && _gestureButton == cid)
             {
                 // A path runs where it ends, as a tap; a step with no action is a junction, and backing out cancels.
                 if (_tracker.Step is { } step)
                 {
-                    _runner.Run(step.Action);
+                    RunOnce(step.Action);
                     GestureFired?.Invoke(cid, Names(_tracker.Path), true);
                 }
                 else if (_tracker.IsClick)
-                    Click(cid, binding.Clicks);
+                    Click(cid, binding);
                 else if (_tracker.Direction is null)
                     InterruptClicks(cid);
                 _gestureButton = null;
             }
             else if (!binding.IsGesture && binding.Clicks.Most > 1)
             {
-                Click(cid, binding.Clicks);
+                Click(cid, binding);
             }
-            _runner.End(cid);
+            End(cid);
             if (!binding.IsGesture && binding.Clicks.Most == 1)
                 ClickFired?.Invoke(cid, 1);
         }
         _held = [.. now];
     }
 
+    /// <summary>Starts an action that lasts as long as the press; layers and profiles are the engine's own.</summary>
+    private void Begin(ushort cid, ButtonAction action)
+    {
+        _runner.End(cid);
+        if (action.HoldsLayer)
+        {
+            if (_layers.Hold(cid))
+                LayerChanged?.Invoke(true);
+        }
+        else if (action.Type is ActionTypes.Layer or ActionTypes.Profile)
+            RunOnce(action);
+        else
+            _runner.Begin(cid, action);
+    }
+
+    private void End(ushort cid)
+    {
+        _runner.End(cid);
+        if (_layers.Release(cid))
+            LayerChanged?.Invoke(_layers.Active);
+    }
+
+    /// <summary>Runs an action once, as a tap. Holding a layer for no time at all does nothing.</summary>
+    private void RunOnce(ButtonAction action)
+    {
+        switch (action.Type)
+        {
+            case ActionTypes.Layer when action.Layer == LayerModes.Toggle:
+                if (_layers.Toggle())
+                    LayerChanged?.Invoke(_layers.Active);
+                break;
+            case ActionTypes.Layer:
+                break;
+            case ActionTypes.Profile:
+                ProfileRequested?.Invoke(action.Profile!);
+                break;
+            default:
+                _runner.Run(action);
+                break;
+        }
+    }
+
     /// <summary>A press came up as a click: runs the count it completes, or waits for the next press.</summary>
-    private void Click(ushort cid, ClickActions actions)
+    private void Click(ushort cid, ButtonBinding binding)
     {
         if (!_clicks.TryGetValue(cid, out var clicks))
         {
-            clicks = (new ClickCounter { Window = _multiClickMs }, new Timer(_ => OnClickWindow(cid)));
+            clicks = new Clicks(new ClickCounter { Window = _multiClickMs }, new Timer(_ => OnClickWindow(cid)));
             _clicks[cid] = clicks;
         }
-        if (clicks.Counter.Release(Now, actions.Most) is { } count)
+        clicks.Binding = binding;
+        if (clicks.Counter.Release(Now, binding.Clicks.Most) is { } count)
             RunClicks(cid, count);
         else
             WaitForClick(clicks);
     }
 
-    private void WaitForClick((ClickCounter Counter, Timer Timer) clicks)
+    private static void WaitForClick(Clicks clicks)
     {
         if (clicks.Counter.Deadline is { } deadline)
             clicks.Timer.Change(Math.Max(1, deadline - Now), Timeout.Infinite);
@@ -298,9 +428,9 @@ public sealed class ButtonEngine : IAsyncDisposable
 
     private void RunClicks(ushort cid, int count)
     {
-        if (!_bindings.TryGetValue(cid, out var binding))
+        if (!_clicks.TryGetValue(cid, out var clicks) || clicks.Binding is not { } binding)
             return;
-        _runner.Run(binding.Clicks[count]);
+        RunOnce(binding.Clicks[count]);
         ClickFired?.Invoke(cid, count);
     }
 
@@ -310,6 +440,7 @@ public sealed class ButtonEngine : IAsyncDisposable
             return;
         clicks.Timer.Change(Timeout.Infinite, Timeout.Infinite);
         clicks.Counter.Clear();
+        clicks.Binding = null;
     }
 
     private void OnMove(ushort cid, int dx, int dy)
@@ -339,15 +470,17 @@ public sealed class ButtonEngine : IAsyncDisposable
     /// </summary>
     private void Fire(ushort cid, GestureDirection direction)
     {
+        if (!_pressed.TryGetValue(cid, out var binding) || binding.Gesture is not { } gesture)
+            return;
         if (GestureHaptic is { } waveform)
             Tap(waveform);
         InterruptClicks(cid);
-        var action = _bindings[cid].Gesture![direction].Action;
-        _runner.End(cid);
+        var action = gesture[direction].Action;
+        End(cid);
         if (action.Repeat)
-            _runner.Run(action);
+            RunOnce(action);
         else
-            _runner.Begin(cid, action);
+            Begin(cid, action);
         GestureFired?.Invoke(cid, [Name(direction)], true);
     }
 
@@ -377,9 +510,10 @@ public sealed class ButtonEngine : IAsyncDisposable
         {
             try { _runner.EndAll(); } catch { }
             _held.Clear();
+            _pressed.Clear();
             _gestureButton = null;
-            foreach (var (_, timer) in _clicks.Values)
-                timer.Dispose();
+            foreach (var clicks in _clicks.Values)
+                clicks.Timer.Dispose();
             _clicks.Clear();
         }
         foreach (var cid in _diverted.Keys)

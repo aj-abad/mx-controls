@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using MxControls.Actions;
 using MxControls.Features;
+using MxControls.Platform;
 
 namespace MxControls.Agent;
 
@@ -16,25 +17,39 @@ public static class Protocol
     public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { TypeInfoResolver = AgentJson.Default };
 }
 
-/// <param name="Bindings">The active profile's bindings.</param>
-/// <param name="ThumbWheel">The active profile's thumb wheel settings.</param>
+/// <param name="Bindings">The running profile's main bindings.</param>
+/// <param name="ThumbWheel">The running profile's main thumb wheel settings.</param>
+/// <param name="ActiveProfile">The profile running now: the one the program in front follows, or else <paramref name="SelectedProfile"/>.</param>
 /// <param name="Revision">Goes up with every change, so a client can tell an older state from a newer one.</param>
 /// <param name="GesturePresets">Every preset: the built-in ones, as edited if they have been, then the user's own.</param>
 /// <param name="BuiltInPresets">The built-in presets as they come, so a client can tell an edited one and reset it.</param>
 /// <param name="PresetUses">Which buttons follow which preset, in every profile.</param>
 /// <param name="MacroUses">Which buttons, thumb wheels and gesture presets run which macro.</param>
+/// <param name="SelectedProfile">The profile chosen by hand or a <c>profile</c> action; it never follows programs.</param>
+/// <param name="LayerActive">Whether the running profile's second layer is on.</param>
+/// <param name="FollowsPrograms">Whether this platform can tell which program is in front, so profiles can follow programs.</param>
 public sealed record AgentState(
     bool Connected, DeviceState? Device, IReadOnlyList<ButtonBinding> Bindings, ThumbWheelSettings ThumbWheel,
     IReadOnlyList<ProfileSummary> Profiles, string ActiveProfile, bool StartAtLogin, bool OptionsPlusRunning, string? Error,
     long Revision, int MultiClickMs, IReadOnlyList<GesturePreset> GesturePresets, IReadOnlyList<GesturePreset> BuiltInPresets,
-    IReadOnlyList<PresetUse> PresetUses, IReadOnlyList<Macro> Macros, IReadOnlyList<MacroUse> MacroUses);
+    IReadOnlyList<PresetUse> PresetUses, IReadOnlyList<Macro> Macros, IReadOnlyList<MacroUse> MacroUses,
+    string SelectedProfile, bool LayerActive, bool FollowsPrograms);
 
-public sealed record PresetUse(string Preset, string Profile, string Button);
+/// <param name="Layer">Whether the button is bound in the profile's second layer rather than its main one.</param>
+public sealed record PresetUse(string Preset, string Profile, string Button, bool Layer = false);
 
 /// <summary>Where a macro runs: a button or the thumb wheel in a profile, or a step of a gesture preset.</summary>
-public sealed record MacroUse(string Macro, string? Profile = null, string? Button = null, string? Preset = null);
+/// <param name="Layer">Whether it's in the profile's second layer rather than its main one.</param>
+public sealed record MacroUse(string Macro, string? Profile = null, string? Button = null, string? Preset = null, bool Layer = false);
 
-public sealed record ProfileSummary(string Id, string Name, string? Icon);
+/// <summary>Everything a profile holds, so a client can show and edit one that isn't running.</summary>
+/// <param name="Programs">The programs that run it while they're in front; empty for a profile chosen by hand.</param>
+public sealed record ProfileSummary(
+    string Id, string Name, string? Icon, IReadOnlyList<string> Programs, IReadOnlyList<ButtonBinding> Bindings,
+    ThumbWheelSettings ThumbWheel, LayerSummary Layer);
+
+/// <param name="ThumbWheel">Null where the second layer keeps the main layer's settings.</param>
+public sealed record LayerSummary(IReadOnlyList<ButtonBinding> Bindings, ThumbWheelSettings? ThumbWheel);
 
 public sealed record DeviceState(
     string Name, string ProductId, string Firmware, BatteryState Battery, DpiState Dpi, SmartShiftSettings SmartShift,
@@ -85,4 +100,6 @@ public sealed record KeyCaptureEvent(bool Active);
 [JsonSerializable(typeof(GesturePreset))]
 [JsonSerializable(typeof(Macro))]
 [JsonSerializable(typeof(ThumbWheelSettings))]
+[JsonSerializable(typeof(ProgramInfo[]))]
+[JsonSerializable(typeof(string[]))]
 internal sealed partial class AgentJson : JsonSerializerContext;

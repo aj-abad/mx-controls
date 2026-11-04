@@ -1,7 +1,7 @@
 import net from "node:net";
 import { once } from "node:events";
 import { initialState } from "./state";
-import type { ButtonBinding, Macro, ThumbWheelSettings } from "../../app/composables/useAgent";
+import type { Macro } from "../../app/composables/useAgent";
 
 export class MockAgent {
   state = initialState();
@@ -10,7 +10,6 @@ export class MockAgent {
   private sockets = new Set<net.Socket>();
   private failures = new Map<string, string>();
   private deferred = new Map<string, Promise<void>>();
-  private profiles = new Map<string, { bindings: ButtonBinding[]; thumbWheel: ThumbWheelSettings }>();
   private server = net.createServer(socket => {
     this.sockets.add(socket);
     socket.on("close", () => this.sockets.delete(socket));
@@ -73,6 +72,19 @@ export class MockAgent {
     if (this.server.listening) await new Promise<void>(resolve => this.server.close(() => resolve()));
   }
 
+  private profile(id: string | undefined) {
+    const profile = this.state.profiles.find(p => p.id === (id ?? this.state.activeProfile));
+    if (!profile) throw new Error("Unknown profile");
+    return profile;
+  }
+
+  /** The running profile's main layer, which the agent repeats at the top of its state. */
+  private mirrorRunning() {
+    const running = this.profile(undefined);
+    this.state.bindings = structuredClone(running.bindings);
+    this.state.thumbWheel = structuredClone(running.thumbWheel);
+  }
+
   private call(method: string, params: Record<string, any>): unknown {
     switch (method) {
       case "getState": return this.state;
@@ -92,17 +104,25 @@ export class MockAgent {
         break;
       }
       case "deleteGesturePreset": this.state.gesturePresets = this.state.gesturePresets.filter(p => p.id !== params.id); break;
-      case "setBindings": this.state.bindings = params.bindings; break;
-      case "setThumbWheel": this.state.thumbWheel = params.thumbWheel; break;
+      case "setBindings": {
+        const profile = this.profile(params.profile);
+        if (params.layer) profile.layer.bindings = params.bindings; else profile.bindings = params.bindings;
+        this.mirrorRunning();
+        break;
+      }
+      case "setThumbWheel": {
+        const profile = this.profile(params.profile);
+        if (params.layer) profile.layer.thumbWheel = params.thumbWheel; else profile.thumbWheel = params.thumbWheel;
+        this.mirrorRunning();
+        break;
+      }
       case "renameProfile": this.state.profiles.find(p => p.id === params.id)!.name = params.name; break;
       case "setProfileIcon": this.state.profiles.find(p => p.id === params.id)!.icon = params.icon; break;
       case "setStartAtLogin": this.state.startAtLogin = params.enabled; break;
       case "switchProfile": {
         if (!this.state.profiles.some(p => p.id === params.id)) throw new Error("Unknown profile");
-        this.profiles.set(this.state.activeProfile, structuredClone({ bindings: this.state.bindings, thumbWheel: this.state.thumbWheel }));
-        const profile = this.profiles.get(params.id) ?? { bindings: [], thumbWheel: { mode: "scroll", speed: 100, inverted: false } };
-        this.state.activeProfile = params.id;
-        Object.assign(this.state, structuredClone(profile));
+        this.state.activeProfile = this.state.selectedProfile = params.id;
+        this.mirrorRunning();
         break;
       }
       default: throw new Error(`Unsupported mock-agent method: ${method}`);

@@ -1,4 +1,15 @@
-import type { AgentState, ButtonAction, ButtonBinding, GesturePreset, GestureStep, Macro, MacroUse } from "~/composables/useAgent";
+import type {
+  AgentState,
+  ButtonAction,
+  ButtonBinding,
+  GesturePreset,
+  GestureStep,
+  Macro,
+  MacroUse,
+  ProfileSummary,
+  ProgramInfo,
+  ThumbWheelSettings,
+} from "~/composables/useAgent";
 
 const step = (id: string, more: Partial<GestureStep> = {}): GestureStep => ({ ...(presetById(id)!.action as ButtonAction), ...more });
 const NONE: GestureStep = { type: "none" };
@@ -18,8 +29,51 @@ const builtInPresets = (): GesturePreset[] => [
   },
 ];
 
-const usesOf = (profile: string, bindings: ButtonBinding[]) =>
-  bindings.filter((b) => b.mode === "gesture" && b.preset).map((b) => ({ preset: b.preset!, profile, button: b.button }));
+const usesOf = (profile: string, bindings: ButtonBinding[], layer = false) =>
+  bindings
+    .filter((b) => b.mode === "gesture" && b.preset)
+    .map((b) => ({ preset: b.preset!, profile, button: b.button, ...(layer && { layer }) }));
+
+const presetUsesOf = (profiles: ProfileSummary[]) =>
+  profiles.flatMap((p) => [...usesOf(p.id, p.bindings), ...usesOf(p.id, p.layer.bindings, true)]);
+
+const SCROLL: ThumbWheelSettings = { mode: "scroll", speed: 100, inverted: false };
+
+const profile = (id: string, name: string, icon: string | null, more: Partial<ProfileSummary> = {}): ProfileSummary => ({
+  id,
+  name,
+  icon,
+  programs: [],
+  bindings: [],
+  thumbWheel: SCROLL,
+  layer: { bindings: [], thumbWheel: null },
+  ...more,
+});
+
+/** The programs the preview pretends are open. */
+export const previewPrograms = (): ProgramInfo[] => [
+  { id: "chrome.exe", name: "Google Chrome" },
+  { id: "code.exe", name: "Visual Studio Code" },
+  { id: "photoshop.exe", name: "Adobe Photoshop" },
+  { id: "spotify.exe", name: "Spotify" },
+];
+
+/** The running profile's main layer, as the agent mirrors it at the top of the state. */
+function withRunning(state: AgentState): AgentState {
+  const running = state.profiles.find((p) => p.id === state.activeProfile) ?? state.profiles[0]!;
+  return { ...state, bindings: running.bindings, thumbWheel: running.thumbWheel };
+}
+
+/** The profile a `setBindings` or `setThumbWheel` changes: the one named, or the one running. */
+const editedProfile = (state: AgentState, params: Record<string, unknown>) => (params.profile as string | undefined) ?? state.activeProfile;
+
+function editProfile(state: AgentState, id: string, change: (p: ProfileSummary) => ProfileSummary): AgentState {
+  if (!state.profiles.some((p) => p.id === id)) throw new Error("That profile was deleted.");
+  const profiles = state.profiles.map((p) => (p.id === id ? change(p) : p));
+  return withRunning({ ...state, profiles, presetUses: presetUsesOf(profiles) });
+}
+
+const switchable = (p: ProfileSummary) => p.programs.length === 0;
 
 const MACROS: Macro[] = [
   { id: "snapleft", name: "Snap left", steps: [{ type: "keys", keys: ["MetaLeft", "ArrowLeft"] }] },
@@ -40,11 +94,17 @@ function withMacroUses(state: AgentState): AgentState {
   const ran = (actions: (ButtonAction | null | undefined)[]) =>
     actions.filter((a): a is ButtonAction => a?.type === "macro" && !!a.macro).map((a) => a.macro!);
   const steps = (p: GesturePreset) => pathRows(p).map((row) => actionOf(row.step));
-  const kept = state.macroUses.filter((use) => use.profile && use.profile !== state.activeProfile);
+  const inLayer = (profile: string, bindings: ButtonBinding[], wheel: ThumbWheelSettings | null, layer: boolean): MacroUse[] => [
+    ...bindings.flatMap((b) =>
+      ran([b.action, b.doubleClick, b.tripleClick]).map((macro) => ({ macro, profile, button: b.button, ...(layer && { layer }) })),
+    ),
+    ...ran([wheel?.left, wheel?.right]).map((macro) => ({ macro, profile, button: "thumbwheel", ...(layer && { layer }) })),
+  ];
   const uses: MacroUse[] = [
-    ...kept,
-    ...state.bindings.flatMap((b) => ran([b.action, b.doubleClick, b.tripleClick]).map((macro) => ({ macro, profile: state.activeProfile, button: b.button }))),
-    ...ran([state.thumbWheel.left, state.thumbWheel.right]).map((macro) => ({ macro, profile: state.activeProfile, button: "thumbwheel" })),
+    ...state.profiles.flatMap((p) => [
+      ...inLayer(p.id, p.bindings, p.thumbWheel, false),
+      ...inLayer(p.id, p.layer.bindings, p.layer.thumbWheel, true),
+    ]),
     ...state.gesturePresets.flatMap((p) => ran(steps(p)).map((macro) => ({ macro, preset: p.id }))),
   ];
   const seen = new Set<string>();
@@ -58,6 +118,27 @@ export function previewState(): AgentState {
     { button: "middle", mode: "action", action: { type: "hold", keys: ["ShiftLeft"] } },
     { button: "back", mode: "action", action: { type: "macro", macro: "snapleft" } },
     { button: "gesture", mode: "gesture", action: { type: "press", keys: ["ControlLeft", "KeyC"] }, preset: "tiling" },
+    { button: "haptic", mode: "action", action: { type: "layer", layer: "momentary" } },
+  ];
+  const profiles = [
+    profile("default", "Default", null, {
+      bindings,
+      layer: {
+        bindings: [
+          { button: "back", mode: "action", action: { type: "press", keys: ["ControlLeft", "KeyZ"] } },
+          { button: "forward", mode: "action", action: { type: "press", keys: ["ControlLeft", "KeyY"] } },
+        ],
+        thumbWheel: { mode: "actions", speed: 100, inverted: false, left: { type: "system", system: "zoomOut" }, right: { type: "system", system: "zoomIn" } },
+      },
+    }),
+    profile("work", "Work", "briefcase", { bindings: [{ button: "smartshift", mode: "action", action: { type: "macro", macro: "shot" } }] }),
+    profile("games", "Games", "game-controller", {
+      bindings: [{ button: "gesture", mode: "gesture", action: { type: "none" }, preset: "desktops" }],
+    }),
+    profile("code", "Code", "terminal-window", {
+      programs: ["code.exe", "devenv.exe"],
+      bindings: [{ button: "forward", mode: "action", action: { type: "profile", profile: "work" } }],
+    }),
   ];
   return withMacroUses({
     connected: true,
@@ -79,17 +160,16 @@ export function previewState(): AgentState {
         spacingMm: 6,
       },
     ],
-    presetUses: [...usesOf("default", bindings), { preset: "desktops", profile: "games", button: "gesture" }],
+    presetUses: presetUsesOf(profiles),
     macros: MACROS,
-    macroUses: [{ macro: "shot", profile: "work", button: "smartshift" }],
+    macroUses: [],
     bindings,
-    thumbWheel: { mode: "scroll", speed: 100, inverted: false },
-    profiles: [
-      { id: "default", name: "Default", icon: null },
-      { id: "work", name: "Work", icon: "briefcase" },
-      { id: "games", name: "Games", icon: "game-controller" },
-    ],
+    thumbWheel: SCROLL,
+    profiles,
     activeProfile: "default",
+    selectedProfile: "default",
+    layerActive: false,
+    followsPrograms: true,
     device: {
       name: "MX Master 4 for Mac",
       productId: "B042",
@@ -135,15 +215,42 @@ export function previewCall(state: AgentState, method: string, params: Record<st
   return MACRO_USERS.has(method) ? withMacroUses(next) : next;
 }
 
-const MACRO_USERS = new Set(["setBindings", "setThumbWheel", "setGesturePreset", "deleteGesturePreset", "setMacro", "deleteMacro"]);
+const MACRO_USERS = new Set([
+  "setBindings",
+  "setThumbWheel",
+  "setGesturePreset",
+  "deleteGesturePreset",
+  "setMacro",
+  "deleteMacro",
+  "createProfile",
+  "deleteProfile",
+]);
 
 function apply(state: AgentState, method: string, params: Record<string, unknown>): AgentState {
   const device = state.device!;
   switch (method) {
     case "setBindings": {
       const bindings = params.bindings as ButtonBinding[];
-      const others = state.presetUses.filter((use) => use.profile !== state.activeProfile);
-      return { ...state, bindings, presetUses: [...others, ...usesOf(state.activeProfile, bindings)] };
+      return editProfile(state, editedProfile(state, params), (p) =>
+        params.layer ? { ...p, layer: { ...p.layer, bindings } } : { ...p, bindings },
+      );
+    }
+    case "setThumbWheel": {
+      const wheel = params.thumbWheel as ThumbWheelSettings | null;
+      return editProfile(state, editedProfile(state, params), (p) =>
+        params.layer ? { ...p, layer: { ...p.layer, thumbWheel: wheel } } : { ...p, thumbWheel: wheel ?? SCROLL },
+      );
+    }
+    case "setProfilePrograms": {
+      const programs = [...new Set((params.programs as string[]).map((p) => p.trim().toLowerCase()).filter(Boolean))];
+      for (const program of programs) {
+        const other = state.profiles.find((p) => p.id !== params.id && p.programs.includes(program));
+        if (other) throw new Error(`${program} already runs ${other.name}.`);
+      }
+      const next = editProfile(state, params.id as string, (p) => ({ ...p, programs }));
+      if (!next.profiles.some(switchable)) throw new Error("Keep at least one profile without programs; it runs for every other program.");
+      const chosen = next.profiles.find((p) => p.id === next.selectedProfile && switchable(p)) ?? next.profiles.find(switchable)!;
+      return withRunning({ ...next, selectedProfile: chosen.id, activeProfile: chosen.id });
     }
     case "setGesturePreset": {
       const preset = params.preset as GesturePreset;
@@ -177,16 +284,22 @@ function apply(state: AgentState, method: string, params: Record<string, unknown
       const level = params.level as number;
       return { ...state, device: { ...device, haptics: { ...device.haptics, enabled: level > 0, level: level || device.haptics.level } } };
     }
-    case "setThumbWheel":
-      return { ...state, thumbWheel: params.thumbWheel as AgentState["thumbWheel"] };
-    case "switchProfile":
-      // The sample keeps one set of bindings; switching only changes which profile is named.
-      return { ...state, activeProfile: params.id as string };
+    case "switchProfile": {
+      const target = state.profiles.find((p) => p.id === params.id);
+      if (!target) throw new Error("That profile was deleted.");
+      if (!switchable(target)) throw new Error(`${target.name} runs only while its programs are in front, so it can't be chosen.`);
+      // The preview has no program in front, so the chosen profile is the one running.
+      return withRunning({ ...state, selectedProfile: target.id, activeProfile: target.id, layerActive: false });
+    }
     case "createProfile": {
       const id = Math.random().toString(36).slice(2, 10);
       const source = state.profiles.find((p) => p.id === params.copyFrom);
       const icon = "icon" in params ? (params.icon as string | null) : (source?.icon ?? null);
-      return { ...state, profiles: [...state.profiles, { id, name: params.name as string, icon }], activeProfile: id };
+      const created = source
+        ? { ...structuredClone(source), id, name: params.name as string, icon, programs: [] }
+        : profile(id, params.name as string, icon);
+      const profiles = [...state.profiles, created];
+      return withRunning({ ...state, profiles, presetUses: presetUsesOf(profiles), selectedProfile: id, activeProfile: id });
     }
     case "setProfileIcon":
       return { ...state, profiles: state.profiles.map((p) => (p.id === params.id ? { ...p, icon: params.icon as string | null } : p)) };
@@ -195,7 +308,10 @@ function apply(state: AgentState, method: string, params: Record<string, unknown
     case "deleteProfile": {
       if (state.profiles.length === 1) throw new Error("The last profile can't be deleted.");
       const profiles = state.profiles.filter((p) => p.id !== params.id);
-      return { ...state, profiles, activeProfile: state.activeProfile === params.id ? profiles[0]!.id : state.activeProfile };
+      if (!profiles.some(switchable)) throw new Error("Keep at least one profile without programs; it runs for every other program.");
+      const chosen = state.selectedProfile === params.id ? profiles.find(switchable)!.id : state.selectedProfile;
+      const running = state.activeProfile === params.id ? chosen : state.activeProfile;
+      return withRunning({ ...state, profiles, presetUses: presetUsesOf(profiles), selectedProfile: chosen, activeProfile: running });
     }
     case "setHostName": {
       const hosts = device.hosts!;

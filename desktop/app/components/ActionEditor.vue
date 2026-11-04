@@ -5,6 +5,8 @@
       :label="label"
       :allow-hold="allowHold"
       :default-label="defaultLabel"
+      :layers="layers"
+      :profiles="profiles"
       @update:model-value="choose"
       @record="capture?.start()"
     />
@@ -52,6 +54,8 @@ const {
   allowRepeat = true,
   repeatLabel = "Repeat while held",
   defaultLabel,
+  layers = "none",
+  profiles = false,
 } = defineProps<{
   /** Null for the button's default, where `defaultLabel` is given. */
   modelValue: ButtonAction | null;
@@ -64,6 +68,10 @@ const {
   repeatLabel?: string;
   /** Offers the button's default, under this name; picking it emits `default`. */
   defaultLabel?: string;
+  /** Which second-layer actions fit here; holding the layer needs a press that lasts. */
+  layers?: "hold" | "toggle" | "none";
+  /** Offers switching profiles. */
+  profiles?: boolean;
 }>();
 const emit = defineEmits<{ "update:modelValue": [action: ButtonAction]; default: [] }>();
 
@@ -77,6 +85,8 @@ const custom = ref(false);
 const choice = computed(() => {
   if (!modelValue) return "default";
   if (modelValue.type === "macro") return `macro:${modelValue.macro}`;
+  if (modelValue.type === "layer") return `layer:${modelValue.layer}`;
+  if (modelValue.type === "profile") return `profile:${modelValue.profile}`;
   const preset = presetFor(modelValue);
   if (preset && !custom.value) return preset.id;
   // A fresh action has no keys and no choice yet; the picker asks for one.
@@ -99,6 +109,9 @@ function choose(id: string) {
       type: "macro",
       macro: id.slice(6),
     }));
+  if (id.startsWith("layer:"))
+    return emit("update:modelValue", { type: "layer", layer: id.slice(6) as "momentary" | "toggle" });
+  if (id.startsWith("profile:")) return emit("update:modelValue", { type: "profile", profile: id.slice(8) });
   const keys =
     modelValue && (modelValue.type === "press" || modelValue.type === "hold") && !presetFor(modelValue)
       ? modelValue.keys
@@ -116,6 +129,12 @@ const actionHint = computed(() => {
   if (modelValue?.type === "hold") return "Keys stay down until you release the button.";
   if (modelValue?.type === "press") return "One key combination, saved only on this action.";
   if (modelValue?.type === "macro") return "Shared macro. Editing it updates every assignment.";
+  if (modelValue?.type === "layer")
+    return modelValue.layer === "momentary"
+      ? "The second layer runs while you hold this button."
+      : "Each time, turns this profile's second layer on or off.";
+  if (modelValue?.type === "profile")
+    return "Programs with a profile of their own keep it; every other program gets this one.";
   return "";
 });
 

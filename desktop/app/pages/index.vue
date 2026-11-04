@@ -2,6 +2,22 @@
   <GesturePresets v-if="page === 'gestures'" />
   <MacrosPage v-else-if="page === 'macros'" />
   <FitStage v-else-if="device" :width="STAGE.width" :height="STAGE.height">
+    <!-- The layer being edited. The photo starts lower than this, so it sits in the space above it. -->
+    <div class="absolute top-0 left-0 z-10 flex w-76 flex-col gap-2">
+      <UiSegmented
+        :model-value="layer"
+        :options="LAYER_OPTIONS"
+        label="Layer to edit"
+        @update:model-value="(value) => (layer = value as LayerId)" />
+      <p class="flex min-h-8 items-start gap-1.5 px-1 text-xs leading-relaxed text-ink-3">
+        <span
+          v-if="layerOn"
+          class="mt-1.5 size-1.5 shrink-0 rounded-full bg-good"
+          aria-hidden="true" />
+        <span>{{ layerHint }}</span>
+      </p>
+    </div>
+
     <ControlMap
       :items="items"
       :selected="selectedId"
@@ -135,6 +151,7 @@
             <ButtonEditor
               :button="selected.button"
               :binding="bindingFor(selected.button.id)"
+              :inherited="second ? (mainBindingFor(selected.button.id) ?? null) : undefined"
               :apply="apply"
               @open-presets="(id) => goTo('gestures', id)" />
             <HapticSettings v-if="selected.control.id === 'haptic'" :device="device" />
@@ -147,14 +164,14 @@
             <span
               class="size-1.5 rounded-full"
               :class="selected.customized ? 'bg-accent' : 'bg-fill-strong'" />
-            {{ selected.customized ? "Customized" : "Default" }}
+            {{ selected.customized ? "Customized" : second && !selected.global ? "Same as main layer" : "Default" }}
           </span>
           <UiButton
             variant="ghost"
             size="sm"
             :disabled="!selected.customized"
             @click="reset(selected)">
-            Reset to default
+            {{ second && !selected.global ? "Use main layer" : "Reset to default" }}
           </UiButton>
         </footer>
       </motion.section>
@@ -188,13 +205,41 @@ import {
 } from "@phosphor-icons/vue";
 import { animate, AnimatePresence, motion, useReducedMotion } from "motion-v";
 import type { ButtonBinding, ButtonState } from "~/composables/useAgent";
+import type { LayerId } from "~/composables/useProfileView";
 import type { ControlId } from "~/utils/controlMap";
 import type { MenuEntry } from "~/utils/menu";
 
 const { state, device, lastGesture, lastClick, lastPress, attempt } = useAgent();
 
-const bindings = computed(() => state.value?.bindings ?? []);
+const view = useProfileView();
+const { layer, second, bindings, mainBindings } = view;
 const bindingFor = (button: string) => bindings.value.find((b) => b.button === button);
+const mainBindingFor = (button: string) => mainBindings.value.find((b) => b.button === button);
+
+const LAYER_OPTIONS = [
+  { value: "main", label: "Main layer" },
+  { value: "second", label: "Second layer" },
+];
+/** Whether the second layer is on right now, in the profile shown. */
+const layerOn = computed(() => !!state.value?.layerActive && state.value.activeProfile === view.profile.value?.id);
+const reachesLayer = computed(() =>
+  [...mainBindings.value, ...(view.profile.value?.layer.bindings ?? [])].some((b) =>
+    [b.action, b.doubleClick, b.tripleClick].some((a) => a?.type === "layer"),
+  ),
+);
+const layerHint = computed(() => {
+  if (layerOn.value) return "The second layer is on now.";
+  if (!reachesLayer.value) return "Set a button to Hold or Toggle second layer to reach it.";
+  return second.value
+    ? "Runs while a button holds or toggles it. Controls left unset do what they do in the main layer."
+    : "A button holds or toggles the second layer.";
+});
+
+// The page follows the chosen profile when a button or another window changes it.
+watch(
+  () => state.value?.selectedProfile,
+  (now, before) => now && before && now !== before && view.view(now),
+);
 
 const selectedId = ref<ControlId | null>(null);
 const hoveredId = ref<ControlId | null>(null);
@@ -218,19 +263,22 @@ const present = computed(() => {
           summary: wheelSummary(),
           customized: wheelCustomized(),
           shared: false,
+          global: true,
         },
       ];
     if (control.id === "thumbwheel") {
       if (!mouse.thumbWheel) return [];
-      const customized = !isDefaultThumbWheel(state.value!.thumbWheel);
+      const own = view.thumbWheel.value;
+      const customized = second.value ? !!own : !isDefaultThumbWheel(own ?? undefined);
       return [
         {
           control,
           button,
           label: "Thumb wheel",
-          summary: thumbWheelSummary(),
+          summary: second.value && !own ? "Same as main layer" : thumbWheelSummary(),
           customized,
-          shared: mouse.thumbWheel.divertedElsewhere && !customized,
+          shared: mouse.thumbWheel.divertedElsewhere && !customized && !second.value,
+          global: false,
         },
       ];
     }
@@ -244,6 +292,7 @@ const present = computed(() => {
           summary: `${current} DPI`,
           customized: current !== standard,
           shared: false,
+          global: true,
         },
       ];
     }
@@ -257,7 +306,8 @@ const present = computed(() => {
         label,
         summary: describe(button),
         customized,
-        shared: button.divertedElsewhere && !customized,
+        shared: button.divertedElsewhere && !customized && !(second.value && mainBindingFor(button.id)),
+        global: false,
       },
     ];
   });
@@ -332,7 +382,7 @@ function wheelCustomized() {
 }
 
 function thumbWheelSummary() {
-  const wheel = state.value!.thumbWheel;
+  const wheel = view.thumbWheel.value ?? view.mainThumbWheel.value!;
   const inverted = wheel.inverted ? ", inverted" : "";
   if (wheel.mode === "actions")
     return `${describeAction(wheel.left ?? NOTHING)} / ${describeAction(wheel.right ?? NOTHING)}${inverted}`;
@@ -352,6 +402,7 @@ function describe(button: ButtonState) {
     const click = binding.action ?? binding.gesture?.click ?? NOTHING;
     return [describeAction(click), ...clicks, gesture].filter(Boolean).join(" · ");
   }
+  if (second.value) return "Same as main layer";
   // Back, forward and middle are named after what they do on their own, so their defaults can say it.
   return MOUSE_BUTTONS[button.id] ?? "Default";
 }
@@ -374,8 +425,8 @@ function onKey(event: KeyboardEvent) {
   void (event.shiftKey || event.code === "KeyY" ? redoLast() : undoLast());
 }
 
-// The changes remembered belong to one profile on one mouse; putting them back elsewhere would change the wrong one.
-watch([() => state.value?.activeProfile, () => device.value?.productId], forgetUndo);
+// Ctrl+Z puts back changes to the profile shown, on this mouse; changes to another one would be out of sight.
+watch([() => view.profile.value?.id, () => device.value?.productId], forgetUndo);
 onMounted(() => window.addEventListener("keydown", onKey));
 onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 
@@ -454,13 +505,16 @@ function reset(item: Item) {
       { ratchet: shift.ratchet, autoDisengage: shift.autoDisengage, torque: shift.torque },
     );
   }
-  if (item.control.id === "thumbwheel")
+  if (item.control.id === "thumbwheel") {
+    const target = view.target();
+    const now = view.thumbWheel.value;
     return resetWith(
       item.label,
       "setThumbWheel",
-      { thumbWheel: { mode: "scroll", speed: 100, inverted: false } },
-      { thumbWheel: { ...state.value!.thumbWheel } },
+      { thumbWheel: target.layer ? null : { mode: "scroll", speed: 100, inverted: false }, ...target },
+      { thumbWheel: now && { ...now }, ...target },
     );
+  }
   return resetWith(item.label, "setDpi", { dpi: mouse.dpi.default }, { dpi: mouse.dpi.current });
 }
 
@@ -498,19 +552,28 @@ function menuFor(item: Item): MenuEntry[] {
   ];
 }
 
-/** Sets one button's binding, or its default for null, keeping the others. */
-function setBinding(button: string, binding: ButtonBinding | null) {
-  const next = bindings.value.filter((b) => b.button !== button);
-  if (binding) next.push(binding);
-  return attempt("setBindings", { bindings: next }, "Couldn't change the button");
+type Target = ReturnType<typeof view.target>;
+
+/** The bindings of one layer of one profile, as the page last heard them. */
+function layerBindings({ profile, layer }: Target) {
+  const p = state.value?.profiles.find((x) => x.id === profile);
+  return (layer ? p?.layer.bindings : p?.bindings) ?? [];
 }
 
-// Changes apply as they're made; Ctrl+Z puts back what the button did.
+/** Sets one button's binding in a layer, or unsets it for null, keeping the others. */
+function setBinding(target: Target, button: string, binding: ButtonBinding | null) {
+  const next = layerBindings(target).filter((b) => b.button !== button);
+  if (binding) next.push(binding);
+  return attempt("setBindings", { bindings: next, ...target }, "Couldn't change the button");
+}
+
+// Changes apply as they're made; Ctrl+Z puts back what the button did, in the layer it was changed in.
 async function apply(binding: ButtonBinding | null, item: Item = selected.value!) {
   const { button } = item;
+  const target = view.target();
   const before = bindingFor(button!.id) ?? null;
-  if (!(await setBinding(button!.id, binding))) return false;
-  rememberUndo(() => setBinding(button!.id, before), () => setBinding(button!.id, binding), "Edit button");
+  if (!(await setBinding(target, button!.id, binding))) return false;
+  rememberUndo(() => setBinding(target, button!.id, before), () => setBinding(target, button!.id, binding), "Edit button");
   return true;
 }
 </script>

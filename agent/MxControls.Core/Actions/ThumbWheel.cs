@@ -36,6 +36,8 @@ public sealed record ThumbWheelSettings(
         return Mode switch
         {
             ScrollMode => null,
+            ActionsMode when new[] { Left, Right }.Any(a => a?.Type is ActionTypes.Layer or ActionTypes.Profile) =>
+                "The thumb wheel can't switch layers or profiles.",
             ActionsMode => (Left ?? ButtonAction.Nothing).Problem(platform) ?? (Right ?? ButtonAction.Nothing).Problem(platform),
             _ => $"Unknown thumb wheel mode '{Mode}'.",
         };
@@ -85,7 +87,11 @@ public sealed class ThumbWheelEngine : IAsyncDisposable
     private readonly ActionRunner _runner;
     private readonly object _gate = new();
     private ThumbWheelSettings _settings = ThumbWheelSettings.Default;
+    private ThumbWheelSettings? _second;
     private ThumbWheelMapper? _mapper;
+    private ThumbWheelMapper? _secondMapper;
+    private bool _diverts;
+    private bool _layerActive;
     // How the wheel reported before we first changed it, and what we've told it since; both null until then.
     private ThumbWheelState? _original;
     private (bool Divert, bool Invert)? _written;
@@ -103,12 +109,31 @@ public sealed class ThumbWheelEngine : IAsyncDisposable
     /// <summary>Whether another app, most likely Logi Options+, had diverted the wheel before we did; null if we never have.</summary>
     public bool? DivertedBefore => _original?.Diverted;
 
-    /// <summary>Runs these settings from now on, writing the wheel's reporting only if it changes.</summary>
-    public async Task UpdateAsync(ThumbWheelSettings settings)
+    /// <summary>Whether the profile's second layer is on, so <c>second</c> settings run instead.</summary>
+    public bool LayerActive
+    {
+        set
+        {
+            lock (_gate)
+                _layerActive = value;
+        }
+    }
+
+    /// <summary>
+    /// Runs these settings from now on, writing the wheel's reporting only if it changes. <paramref name="second"/>
+    /// runs while the second layer is on, or null to keep <paramref name="settings"/> then too. With two that differ,
+    /// the wheel stays diverted, so switching layers writes nothing to the mouse.
+    /// </summary>
+    public async Task UpdateAsync(ThumbWheelSettings settings, ThumbWheelSettings? second = null)
     {
         if (settings.Problem(_platform) is { } problem)
             throw new ArgumentException(problem, nameof(settings));
-        if (settings.IsDefault)
+        if (second?.Problem(_platform) is { } secondProblem)
+            throw new ArgumentException(secondProblem, nameof(second));
+        if (second == settings)
+            second = null;
+        bool diverts = settings.Diverts || second is { } s && (s.Diverts || s.Inverted != settings.Inverted);
+        if (!diverts && settings.IsDefault)
         {
             if (_original is { } original && _written is not null)
             {
@@ -119,7 +144,7 @@ public sealed class ThumbWheelEngine : IAsyncDisposable
         else
         {
             _original ??= await _device.Wheels.GetThumbWheelAsync();
-            var wanted = (settings.Diverts, !settings.Diverts && settings.Inverted);
+            var wanted = (diverts, !diverts && settings.Inverted);
             if (_written != wanted)
             {
                 await _device.Wheels.SetThumbWheelAsync(wanted.Item1, wanted.Item2);
@@ -129,7 +154,10 @@ public sealed class ThumbWheelEngine : IAsyncDisposable
         lock (_gate)
         {
             _settings = settings;
+            _second = second;
+            _diverts = diverts;
             _mapper = _original is { } o ? new ThumbWheelMapper(settings, o.NativeResolution, o.DivertedResolution) : null;
+            _secondMapper = _original is { } p && second is not null ? new ThumbWheelMapper(second, p.NativeResolution, p.DivertedResolution) : null;
         }
     }
 
@@ -146,19 +174,21 @@ public sealed class ThumbWheelEngine : IAsyncDisposable
             return;
         lock (_gate)
         {
-            if (!_settings.Diverts || _mapper is null)
+            bool second = _layerActive && _second is not null;
+            var (settings, mapper) = second ? (_second!, _secondMapper) : (_settings, _mapper);
+            if (!_diverts || mapper is null)
                 return;
             try
             {
-                int amount = _mapper.Turn(turn);
+                int amount = mapper.Turn(turn);
                 if (amount == 0)
                     return;
-                if (_settings.Mode == ThumbWheelSettings.ScrollMode)
+                if (settings.Mode == ThumbWheelSettings.ScrollMode)
                 {
                     _platform.Input.ScrollHorizontal(amount);
                     return;
                 }
-                var action = (amount > 0 ? _settings.Right : _settings.Left) ?? ButtonAction.Nothing;
+                var action = (amount > 0 ? settings.Right : settings.Left) ?? ButtonAction.Nothing;
                 for (int i = 0; i < Math.Abs(amount); i++)
                     _runner.Run(action);
             }

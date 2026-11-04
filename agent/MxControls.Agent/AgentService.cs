@@ -39,6 +39,12 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
     private KeyRecorder? _recorder;
     // What `macro` actions run; both engines read it, and it changes with the settings.
     private readonly MacroLibrary _macros = new();
+    // The program in front, written by the platform's watcher thread.
+    private volatile string? _foreground;
+    private IDisposable? _foregroundWatch;
+    // The profile the engines run, so starting another one goes back to its main layer.
+    private string? _appliedProfile;
+    private string? _publishedProfile;
 
     /// <summary>An event for every client: its name and payload.</summary>
     public event Action<string, object>? Published;
@@ -46,19 +52,40 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
     /// <summary>A client asked the agent to exit.</summary>
     public event Action? ShutdownRequested;
 
-    public AgentState State =>
-        new(_device is not null && _deviceState is not null, _deviceState, _settings.AllBindings, _settings.Active.Wheel,
-            _settings.AllProfiles.Select(p => new ProfileSummary(p.Id, p.Name, p.Icon)).ToArray(), _settings.Active.Id,
-            _settings.StartAtLogin, _optionsPlus, _error, Interlocked.Read(ref _revision), _settings.MultiClickMs,
-            _settings.AllPresets, PresetLibrary.BuiltIn,
-            _settings.AllProfiles.SelectMany(p => p.AllBindings
-                .Where(b => b is { IsGesture: true, Preset: not null })
-                .Select(b => new PresetUse(b.Preset!, p.Id, b.Button))).ToArray(),
-            _settings.Macros ?? [], MacroUses(_settings));
+    public AgentState State
+    {
+        get
+        {
+            var settings = _settings;
+            var running = settings.Running(_foreground);
+            return new(_device is not null && _deviceState is not null, _deviceState, running.AllBindings, running.Wheel,
+                settings.AllProfiles.Select(Summary).ToArray(), running.Id,
+                settings.StartAtLogin, _optionsPlus, _error, Interlocked.Read(ref _revision), settings.MultiClickMs,
+                settings.AllPresets, PresetLibrary.BuiltIn, PresetUses(settings), settings.Macros ?? [], MacroUses(settings),
+                settings.Active.Id, _engine?.LayerActive ?? false, platform.Programs is not null);
+        }
+    }
+
+    private static ProfileSummary Summary(Profile p) =>
+        new(p.Id, p.Name, p.Icon, p.AllPrograms, p.AllBindings, p.Wheel, new LayerSummary(p.SecondLayer.AllBindings, p.SecondLayer.ThumbWheel));
+
+    private static IReadOnlyList<PresetUse> PresetUses(AgentSettings settings) =>
+        settings.AllProfiles.SelectMany(p =>
+            p.AllBindings.Select(b => (Binding: b, Layer: false)).Concat(p.SecondLayer.AllBindings.Select(b => (Binding: b, Layer: true)))
+                .Where(x => x.Binding is { IsGesture: true, Preset: not null })
+                .Select(x => new PresetUse(x.Binding.Preset!, p.Id, x.Binding.Button, x.Layer))).ToArray();
 
     public async Task RunAsync(CancellationToken stop)
     {
         ApplyLoginItem();
+        try
+        {
+            _foregroundWatch = platform.Programs?.WatchForeground(OnForeground);
+        }
+        catch (Exception error)
+        {
+            Log.Write($"Watching which program is in front failed; profiles won't follow programs: {error.Message}");
+        }
         while (!stop.IsCancellationRequested)
         {
             try
@@ -149,6 +176,7 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
         await _device.DisposeAsync();
         _engine = null;
         _thumb = null;
+        _appliedProfile = null;
         _device = null;
         _deviceState = null;
         _held = [];
@@ -172,14 +200,20 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
 
     private async Task StartEnginesAsync(MxDevice mx)
     {
-        var profile = _settings.Active;
+        var profile = _settings.Running(_foreground);
         _macros.Set(_settings.Macros ?? []);
-        _engine = await ButtonEngine.StartAsync(mx, platform, UsableBindings(_settings), _macros);
-        _engine.Failed += error => Log.Write($"Running an action failed: {error.Message}");
-        _engine.GestureFired += (cid, path, ran) => Published?.Invoke("gesture",
+        var engine = await ButtonEngine.StartAsync(mx, platform, UsableBindings(_settings, profile.AllBindings), _macros,
+            UsableBindings(_settings, profile.SecondLayer.AllBindings));
+        _engine = engine;
+        _appliedProfile = profile.Id;
+        engine.Failed += error => Log.Write($"Running an action failed: {error.Message}");
+        engine.GestureFired += (cid, path, ran) => Published?.Invoke("gesture",
             new GestureEvent(ButtonId(cid), path.Count > 0 ? path[^1] : null, path, ran ? "fire" : "step"));
-        _engine.ClickFired += (cid, count) => Published?.Invoke("click", new ClickEvent(ButtonId(cid), count));
-        _engine.MultiClickMs = _settings.MultiClickMs;
+        engine.ClickFired += (cid, count) => Published?.Invoke("click", new ClickEvent(ButtonId(cid), count));
+        engine.LayerChanged += active => OnLayerChanged(engine, active);
+        engine.ProfileRequested += OnProfileRequested;
+        engine.NativePressed += cid => OnNativePressed(engine, cid);
+        engine.MultiClickMs = _settings.MultiClickMs;
 
         if (!mx.Has(FeatureIds.ThumbWheel))
             return;
@@ -188,7 +222,7 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
         // The buttons are what matter most; a wheel that won't take its settings keeps scrolling as it did.
         try
         {
-            await _thumb.UpdateAsync(UsableWheel(profile));
+            await _thumb.UpdateAsync(UsableWheel(profile.Wheel), UsableSecondWheel(profile));
         }
         catch (Exception error)
         {
@@ -197,18 +231,153 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
     }
 
     // A binding this platform can't run is skipped rather than stopping the others.
-    private IEnumerable<ButtonBinding> UsableBindings(AgentSettings settings) =>
-        settings.ResolvedBindings.Where(b => b.Problem(platform) is null);
+    private IEnumerable<ButtonBinding> UsableBindings(AgentSettings settings, IEnumerable<ButtonBinding> bindings) =>
+        settings.Resolved(bindings).Where(b => b.Problem(platform) is null);
 
-    private ThumbWheelSettings UsableWheel(Profile profile) =>
-        profile.Wheel.Problem(platform) is null ? profile.Wheel : ThumbWheelSettings.Default;
+    private ThumbWheelSettings UsableWheel(ThumbWheelSettings wheel) =>
+        wheel.Problem(platform) is null ? wheel : ThumbWheelSettings.Default;
 
-    /// <summary>Runs the active profile on the connected mouse, writing only what differs from what's running.</summary>
+    private ThumbWheelSettings? UsableSecondWheel(Profile profile) =>
+        profile.SecondLayer.ThumbWheel is { } wheel && wheel.Problem(platform) is null ? wheel : null;
+
+    /// <summary>
+    /// Runs the profile for the program in front on the connected mouse, writing only what differs from what's
+    /// running. A profile that wasn't running starts on its main layer.
+    /// </summary>
     private async Task ApplyProfileAsync(AgentSettings settings)
     {
-        await _engine!.UpdateAsync(UsableBindings(settings));
-        if (_thumb is not null)
-            await _thumb.UpdateAsync(UsableWheel(settings.Active));
+        var profile = settings.Running(_foreground);
+        try
+        {
+            await _engine!.UpdateAsync(UsableBindings(settings, profile.AllBindings),
+                UsableBindings(settings, profile.SecondLayer.AllBindings), resetLayer: profile.Id != _appliedProfile);
+            _appliedProfile = profile.Id;
+            if (_thumb is not null)
+                await _thumb.UpdateAsync(UsableWheel(profile.Wheel), UsableSecondWheel(profile));
+        }
+        finally
+        {
+            if (_deviceState is not null)
+                _deviceState = _deviceState with { Buttons = ButtonStates(), ThumbWheel = ThumbWheelState() };
+        }
+    }
+
+    private void OnForeground(string? program)
+    {
+        if (program == _foreground)
+            return;
+        _foreground = program;
+        _ = Task.Run(FollowForegroundAsync);
+    }
+
+    /// <summary>Runs the profile of the program now in front, or the chosen one when it has none.</summary>
+    private async Task FollowForegroundAsync()
+    {
+        bool changed = false;
+        try
+        {
+            await _queue.RunLatestAsync("foreground", async () =>
+            {
+                var running = _settings.Running(_foreground).Id;
+                changed = running != _publishedProfile;
+                if (_engine is not null && running != _appliedProfile)
+                {
+                    Log.Write($"Running the profile {_settings.FindProfile(running)?.Name} for {_foreground ?? "no program"}");
+                    await ApplyProfileAsync(_settings);
+                }
+            });
+        }
+        catch (Exception error)
+        {
+            Log.Write($"Switching to the profile for {_foreground} failed: {error.Message}");
+        }
+        if (changed)
+            PublishState();
+    }
+
+    /// <summary>
+    /// The second layer turned on or off. The thumb wheel follows at once; buttons that are a gesture in one layer
+    /// only change their raw XY, a write that waits its turn.
+    /// </summary>
+    private void OnLayerChanged(ButtonEngine engine, bool active)
+    {
+        if (_thumb is { } thumb)
+            thumb.LayerActive = active;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _queue.RunLatestAsync("layer", () => _engine == engine ? engine.SyncLayerAsync() : Task.CompletedTask);
+            }
+            catch (Exception error)
+            {
+                Log.Write($"Changing raw XY for the layer failed: {error.Message}");
+            }
+            PublishState();
+        });
+    }
+
+    /// <summary>A <c>profile</c> action ran: it chooses that profile, unless programs choose it instead.</summary>
+    private void OnProfileRequested(string id)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _queue.RunLatestAsync("switchProfile", () => ChangeSettingsAsync(s =>
+                {
+                    if (s.FindProfile(id) is not { } profile)
+                    {
+                        Log.Write($"A button switched to the profile '{id}', which was deleted");
+                        return s;
+                    }
+                    if (!profile.Switchable)
+                    {
+                        Log.Write($"A button switched to {profile.Name}, which runs only with its programs");
+                        return s;
+                    }
+                    return s.Active.Id == id ? s : s with { ActiveProfile = id };
+                }));
+                PublishState();
+            }
+            catch (Exception error)
+            {
+                Log.Write($"Switching profiles from a button failed: {error.Message}");
+            }
+        });
+    }
+
+    /// <summary>
+    /// A button bound only in the layer that's off went down. Smart Shift's own switch between ratchet and free spin
+    /// is done for it; the other buttons do nothing of their own without Logi Options+.
+    /// </summary>
+    private void OnNativePressed(ButtonEngine engine, ushort cid)
+    {
+        if (ButtonId(cid) != "smartshift")
+            return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _queue.RunAsync(async () =>
+                {
+                    if (_engine != engine || _device is not { } mx)
+                        return;
+                    var shift = await mx.Wheels.GetSmartShiftAsync();
+                    await mx.Wheels.SetSmartShiftAsync(shift with { Ratchet = !shift.Ratchet });
+                    shift = await mx.Wheels.GetSmartShiftAsync();
+                    _deviceState = _deviceState! with
+                    {
+                        SmartShift = _deviceState.SmartShift with { Ratchet = shift.Ratchet, AutoDisengage = shift.AutoDisengage, Torque = shift.Torque },
+                    };
+                });
+                PublishState();
+            }
+            catch (Exception error)
+            {
+                Log.Write($"Switching the wheel's ratchet failed: {error.Message}");
+            }
+        });
     }
 
     private void OnDeviceEvent(HidppEvent e)
@@ -335,6 +504,7 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
 
     private void PublishState()
     {
+        _publishedProfile = _settings.Running(_foreground).Id;
         Interlocked.Increment(ref _revision);
         Published?.Invoke("state", State);
     }
@@ -381,6 +551,13 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
                 int host = args.GetProperty("host").GetInt32();
                 await _queue.RunAsync(() => SwitchHostAsync(host));
                 return State;
+            case "listPrograms":
+                return (platform.Programs?.Running() ?? []).ToArray();
+            case "setProfilePrograms":
+                var bound = ProfileArg(args).Id;
+                var programs = ProgramsArg(args);
+                await _queue.RunAsync(() => ChangeSettingsAsync(s => SetPrograms(s, bound, programs)));
+                break;
             case "createProfile":
                 var source = args.TryGetProperty("copyFrom", out var from) && from.GetString() is { } fromId ? FindProfile(fromId) : null;
                 var created = ProfileName(args);
@@ -406,14 +583,19 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
                     var rest = s.AllProfiles.Where(p => p.Id != doomed).ToArray();
                     if (rest.Length == 0)
                         throw new InvalidOperationException("The last profile can't be deleted.");
-                    return s with { Profiles = rest, ActiveProfile = s.Active.Id == doomed ? rest[0].Id : s.Active.Id };
+                    if (!rest.Any(p => p.Switchable))
+                        throw new InvalidOperationException(KeepOneChosen);
+                    var chosen = s.Active.Id == doomed ? rest.First(p => p.Switchable).Id : s.Active.Id;
+                    return s with { Profiles = rest, ActiveProfile = chosen };
                 }));
                 break;
             case "setGesturePreset":
                 var preset = args.GetProperty("preset").Deserialize(AgentJson.Default.GesturePreset)
                     ?? throw new ArgumentException("Missing the gesture preset.");
                 PresetArg(preset);
-                CheckMacros([.. new[] { preset.Up, preset.Down, preset.Left, preset.Right }.SelectMany(s => s.All).Select(s => s.Action)]);
+                ButtonAction[] steps = [.. new[] { preset.Up, preset.Down, preset.Left, preset.Right }.SelectMany(s => s.All).Select(s => s.Action)];
+                CheckMacros(steps);
+                CheckProfileActions(steps);
                 await _queue.RunAsync(() => ChangeSettingsAsync(s => s with
                 {
                     GesturePresets = s.GesturePresets?.Any(p => p.Id == preset.Id) == true
@@ -452,8 +634,11 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
                     s => s with { Macros = (s.Macros ?? []).Where(m => m.Id != unwanted).ToArray() }, apply: false));
                 break;
             default:
-                // A setting: its arguments are checked now, and its work waits its turn, giving way to a newer change.
-                await _queue.RunLatestAsync(method, Prepare(method, args));
+                // A setting: its arguments are checked now, and its work waits its turn, giving way to a newer change
+                // to the same setting. Each layer of each profile is a setting of its own.
+                var work = Prepare(method, args);
+                var key = method is "setBindings" or "setThumbWheel" ? $"{method}:{EditedProfile(args)}:{EditsLayer(args)}" : method;
+                await _queue.RunLatestAsync(key, work);
                 break;
         }
         PublishState();
@@ -478,22 +663,35 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
                         throw new ArgumentException($"{binding.Button}: {problem}");
                     if (binding is { IsGesture: true, Gesture: null, Preset: { } preset } && _settings.FindPreset(preset) is null)
                         throw new ArgumentException($"{binding.Button}: that gesture preset was deleted.");
-                    CheckMacros([binding.Action, binding.DoubleClick, binding.TripleClick, .. ActionsOf(binding.Gesture)]);
+                    CheckMacros(binding.AllActions);
+                    CheckProfileActions(binding.AllActions);
                 }
                 var distinct = bindings.DistinctBy(b => b.Button.ToLowerInvariant()).ToArray();
-                return () => ChangeSettingsAsync(s => s.WithActive(p => p with { Bindings = distinct }));
+                var bindingsFor = EditedProfile(args);
+                return EditsLayer(args)
+                    ? () => ChangeSettingsAsync(s => EditProfile(s, bindingsFor, p => WithLayer(p, p.SecondLayer with { Bindings = distinct })))
+                    : () => ChangeSettingsAsync(s => EditProfile(s, bindingsFor, p => p with { Bindings = distinct }));
             case "setThumbWheel":
-                var wheel = args.GetProperty("thumbWheel").Deserialize(AgentJson.Default.ThumbWheelSettings)
-                    ?? throw new ArgumentException("Missing thumb wheel settings.");
-                if (wheel.Problem(platform) is { } wheelProblem)
+                var layer = EditsLayer(args);
+                var wheelArg = args.GetProperty("thumbWheel");
+                // The second layer takes null for keeping the main layer's settings.
+                var wheel = layer && wheelArg.ValueKind == JsonValueKind.Null
+                    ? null
+                    : wheelArg.Deserialize(AgentJson.Default.ThumbWheelSettings) ?? throw new ArgumentException("Missing thumb wheel settings.");
+                if (wheel?.Problem(platform) is { } wheelProblem)
                     throw new ArgumentException(wheelProblem);
-                CheckMacros([wheel.Left, wheel.Right]);
-                return () => ChangeSettingsAsync(s => s.WithActive(p => p with { ThumbWheel = wheel.IsDefault ? null : wheel }));
+                CheckMacros([wheel?.Left, wheel?.Right]);
+                var wheelFor = EditedProfile(args);
+                return layer
+                    ? () => ChangeSettingsAsync(s => EditProfile(s, wheelFor, p => WithLayer(p, p.SecondLayer with { ThumbWheel = wheel })))
+                    : () => ChangeSettingsAsync(s => EditProfile(s, wheelFor, p => p with { ThumbWheel = wheel!.IsDefault ? null : wheel }));
             case "switchProfile":
                 var target = ProfileArg(args);
-                return () => ChangeSettingsAsync(s => s.AllProfiles.Any(p => p.Id == target.Id)
+                if (!target.Switchable)
+                    throw new ArgumentException($"{target.Name} runs only while its programs are in front, so it can't be chosen.");
+                return () => ChangeSettingsAsync(s => s.FindProfile(target.Id) is { Switchable: true }
                     ? s with { ActiveProfile = target.Id }
-                    : throw new ArgumentException($"The profile {target.Name} was deleted."));
+                    : throw new ArgumentException($"The profile {target.Name} was deleted or follows programs now."));
             case "setDpi":
                 int dpi = args.GetProperty("dpi").GetInt32();
                 return async () =>
@@ -588,9 +786,62 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
         }
     }
 
-    private static IEnumerable<ButtonAction> ActionsOf(GestureActions? gesture) => gesture is null
-        ? []
-        : [gesture.Click, .. new[] { gesture.Up, gesture.Down, gesture.Left, gesture.Right }.SelectMany(s => s.All).Select(s => s.Action)];
+    /// <summary>Refuses switching to a profile by something that isn't a profile ID.</summary>
+    private static void CheckProfileActions(IEnumerable<ButtonAction?> actions)
+    {
+        foreach (var action in actions)
+        {
+            if (action is { Type: ActionTypes.Profile, Profile: { } id } && !IsId(id))
+                throw new ArgumentException($"'{id}' isn't a profile ID.");
+        }
+    }
+
+    /// <summary>The profile a <c>setBindings</c> or <c>setThumbWheel</c> changes: the one named, or the one running.</summary>
+    private string EditedProfile(JsonElement args) =>
+        args.TryGetProperty("profile", out var profile) && profile.GetString() is { } id ? FindProfile(id).Id : _settings.Running(_foreground).Id;
+
+    private static bool EditsLayer(JsonElement args) =>
+        args.TryGetProperty("layer", out var layer) && layer.ValueKind == JsonValueKind.True;
+
+    private static AgentSettings EditProfile(AgentSettings settings, string id, Func<Profile, Profile> change) =>
+        settings.FindProfile(id) is null
+            ? throw new ArgumentException("That profile was deleted.")
+            : settings.WithProfile(id, change);
+
+    private static Profile WithLayer(Profile profile, ProfileLayer layer) => profile with { Layer = layer.IsEmpty ? null : layer };
+
+    private const string KeepOneChosen = "Keep at least one profile without programs; it runs for every other program.";
+
+    /// <summary>Program IDs as stored: trimmed, lower case and each once. A path is cut down to its file name.</summary>
+    private static string[] ProgramsArg(JsonElement args)
+    {
+        var programs = args.GetProperty("programs").Deserialize(AgentJson.Default.StringArray) ?? [];
+        return programs
+            .Select(p => Path.GetFileName(p.Trim()).ToLowerInvariant())
+            .Select(p => p.Length is > 0 and <= 260 ? p : throw new ArgumentException($"'{p}' isn't a program name."))
+            .Distinct()
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Binds <paramref name="programs"/> to the profile, replacing what it had. A program follows one profile, and
+    /// one profile stays without programs to run for the rest.
+    /// </summary>
+    private static AgentSettings SetPrograms(AgentSettings settings, string id, IReadOnlyList<string> programs)
+    {
+        if (settings.FindProfile(id) is null)
+            throw new ArgumentException("That profile was deleted.");
+        foreach (var program in programs)
+        {
+            if (settings.ProfileFor(program) is { } other && other.Id != id)
+                throw new ArgumentException($"{program} already runs {other.Name}.");
+        }
+        var next = settings.WithProfile(id, p => p with { Programs = programs.Count > 0 ? [.. programs] : null });
+        if (!next.AllProfiles.Any(p => p.Switchable))
+            throw new ArgumentException(KeepOneChosen);
+        // Profiles that follow programs aren't chosen; the chosen one stays put unless it's this one.
+        return next with { ActiveProfile = next.Active.Id };
+    }
 
     private static IReadOnlyList<MacroUse> MacroUses(AgentSettings settings)
     {
@@ -600,9 +851,13 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
         foreach (var profile in settings.AllProfiles)
         {
             foreach (var b in profile.AllBindings)
-                uses.AddRange(Run([b.Action, b.DoubleClick, b.TripleClick, .. ActionsOf(b.Gesture)]).Select(id => new MacroUse(id, profile.Id, b.Button)));
+                uses.AddRange(Run(b.AllActions).Select(id => new MacroUse(id, profile.Id, b.Button)));
+            foreach (var b in profile.SecondLayer.AllBindings)
+                uses.AddRange(Run(b.AllActions).Select(id => new MacroUse(id, profile.Id, b.Button, Layer: true)));
             if (profile.ThumbWheel is { } wheel)
                 uses.AddRange(Run([wheel.Left, wheel.Right]).Select(id => new MacroUse(id, profile.Id, "thumbwheel")));
+            if (profile.SecondLayer.ThumbWheel is { } second)
+                uses.AddRange(Run([second.Left, second.Right]).Select(id => new MacroUse(id, profile.Id, "thumbwheel", Layer: true)));
         }
         foreach (var preset in settings.AllPresets)
         {
@@ -638,7 +893,8 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
     /// <summary>A new profile, active from now on: a copy of <paramref name="source"/>, or every control at its default.</summary>
     private static AgentSettings CreateProfile(AgentSettings settings, string name, string? icon, Profile? source)
     {
-        var profile = (source ?? new Profile("", name, [])) with { Id = Profile.NewId(), Name = name, Icon = icon };
+        // A program follows one profile, so a copy starts without the source's programs.
+        var profile = (source ?? new Profile("", name, [])) with { Id = Profile.NewId(), Name = name, Icon = icon, Programs = null };
         return settings with { Profiles = [.. settings.AllProfiles, profile], ActiveProfile = profile.Id };
     }
 
@@ -650,7 +906,9 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
     {
         var previous = _settings;
         var next = change(previous);
-        if (apply && _device is not null)
+        if (ReferenceEquals(next, previous))
+            return;
+        if (apply && _engine is not null)
         {
             try
             {
@@ -669,10 +927,6 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
                 }
                 throw;
             }
-            finally
-            {
-                _deviceState = _deviceState! with { Buttons = ButtonStates(), ThumbWheel = ThumbWheelState() };
-            }
         }
         _settings = next;
         _macros.Set(next.Macros ?? []);
@@ -681,6 +935,7 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
 
     public async ValueTask DisposeAsync()
     {
+        _foregroundWatch?.Dispose();
         _recorder?.Dispose();
         await _queue.RunAsync(() => DropDeviceAsync(null));
     }

@@ -4,10 +4,19 @@ using MxControls.Actions;
 
 namespace MxControls.Agent;
 
-/// <summary>A named set of button bindings and thumb wheel settings; one is active at a time.</summary>
+/// <summary>
+/// A named set of button bindings and thumb wheel settings, with a second layer over them. One runs at a time: the
+/// profile bound to the program in front, or else the one chosen last among those bound to no program.
+/// </summary>
 /// <param name="Icon">A Phosphor icon name the app draws for the profile, or null for its initial.</param>
+/// <param name="Layer">The second layer, which runs over the main one while a button holds or toggles it on.</param>
+/// <param name="Programs">
+/// Program IDs, such as "chrome.exe", that run this profile while they're in front. A profile with programs is
+/// never chosen by hand or by a <c>profile</c> action.
+/// </param>
 public sealed record Profile(
-    string Id, string Name, IReadOnlyList<ButtonBinding>? Bindings = null, ThumbWheelSettings? ThumbWheel = null, string? Icon = null)
+    string Id, string Name, IReadOnlyList<ButtonBinding>? Bindings = null, ThumbWheelSettings? ThumbWheel = null, string? Icon = null,
+    ProfileLayer? Layer = null, IReadOnlyList<string>? Programs = null)
 {
     public const string DefaultId = "default";
     public static readonly Profile Default = new(DefaultId, "Default", []);
@@ -18,7 +27,34 @@ public sealed record Profile(
     [JsonIgnore]
     public ThumbWheelSettings Wheel => ThumbWheel ?? ThumbWheelSettings.Default;
 
+    [JsonIgnore]
+    public ProfileLayer SecondLayer => Layer ?? ProfileLayer.Empty;
+
+    [JsonIgnore]
+    public IReadOnlyList<string> AllPrograms => Programs ?? [];
+
+    /// <summary>Whether it can be chosen by hand or by a <c>profile</c> action: it follows no programs.</summary>
+    [JsonIgnore]
+    public bool Switchable => AllPrograms.Count == 0;
+
+    public bool Follows(string program) => AllPrograms.Any(p => string.Equals(p, program, StringComparison.OrdinalIgnoreCase));
+
     public static string NewId() => Guid.NewGuid().ToString("N")[..8];
+}
+
+/// <summary>
+/// A profile's second layer. A button it leaves unbound runs its main binding, and a null thumb wheel keeps the main
+/// layer's settings.
+/// </summary>
+public sealed record ProfileLayer(IReadOnlyList<ButtonBinding>? Bindings = null, ThumbWheelSettings? ThumbWheel = null)
+{
+    public static readonly ProfileLayer Empty = new();
+
+    [JsonIgnore]
+    public IReadOnlyList<ButtonBinding> AllBindings => Bindings ?? [];
+
+    [JsonIgnore]
+    public bool IsEmpty => AllBindings.Count == 0 && ThumbWheel is null;
 }
 
 /// <param name="Bindings">Bindings from before profiles; read once and saved back as the default profile.</param>
@@ -41,11 +77,26 @@ public sealed record AgentSettings(
     [JsonIgnore]
     public IReadOnlyList<Profile> AllProfiles => Profiles is { Count: > 0 } profiles ? profiles : [Profile.Default];
 
+    /// <summary>
+    /// The profile chosen by hand or by a <c>profile</c> action, which runs whenever the program in front has none
+    /// of its own; the first profile without programs if that one is gone or has gained programs since.
+    /// </summary>
     [JsonIgnore]
-    public Profile Active => AllProfiles.FirstOrDefault(p => p.Id == ActiveProfile) ?? AllProfiles[0];
+    public Profile Active =>
+        AllProfiles.FirstOrDefault(p => p.Id == ActiveProfile && p.Switchable)
+        ?? AllProfiles.FirstOrDefault(p => p.Switchable)
+        ?? AllProfiles[0];
 
     [JsonIgnore]
     public IReadOnlyList<ButtonBinding> AllBindings => Active.AllBindings;
+
+    /// <summary>The profile bound to <paramref name="program"/>, or null.</summary>
+    public Profile? ProfileFor(string? program) => program is null ? null : AllProfiles.FirstOrDefault(p => p.Follows(program));
+
+    /// <summary>What runs with <paramref name="program"/> in front: its own profile, or else <see cref="Active"/>.</summary>
+    public Profile Running(string? program) => ProfileFor(program) ?? Active;
+
+    public Profile? FindProfile(string id) => AllProfiles.FirstOrDefault(p => p.Id == id);
 
     /// <summary>The built-in presets, as edited if they have been, then the user's own.</summary>
     [JsonIgnore]
@@ -64,16 +115,23 @@ public sealed record AgentSettings(
 
     public GesturePreset? FindPreset(string id) => AllPresets.FirstOrDefault(p => p.Id == id);
 
-    /// <summary>The active profile's bindings as the engine runs them, with their presets' moves filled in.</summary>
+    /// <summary>Bindings as the engine runs them, with their presets' moves filled in.</summary>
+    public IEnumerable<ButtonBinding> Resolved(IEnumerable<ButtonBinding> bindings) => bindings.Select(b => b.Resolve(FindPreset));
+
+    /// <summary>The active profile's bindings as the engine runs them.</summary>
     [JsonIgnore]
-    public IEnumerable<ButtonBinding> ResolvedBindings => AllBindings.Select(b => b.Resolve(FindPreset));
+    public IEnumerable<ButtonBinding> ResolvedBindings => Resolved(AllBindings);
 
     /// <summary>Replaces the active profile with what <paramref name="change"/> makes of it.</summary>
     public AgentSettings WithActive(Func<Profile, Profile> change)
     {
         var active = Active;
-        return this with { Profiles = AllProfiles.Select(p => p.Id == active.Id ? change(p) : p).ToArray(), ActiveProfile = active.Id };
+        return WithProfile(active.Id, change) with { ActiveProfile = active.Id };
     }
+
+    /// <summary>Replaces the profile <paramref name="id"/> with what <paramref name="change"/> makes of it.</summary>
+    public AgentSettings WithProfile(string id, Func<Profile, Profile> change) =>
+        this with { Profiles = AllProfiles.Select(p => p.Id == id ? change(p) : p).ToArray() };
 
     public AgentSettings Migrated()
     {

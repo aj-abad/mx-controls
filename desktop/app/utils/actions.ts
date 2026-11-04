@@ -87,7 +87,7 @@ export const presetById = (id: string) => PRESETS_BY_ID.get(id);
 
 // Repeating doesn't change what an action is, so it's left out when matching one to a preset.
 const identity = (action: ButtonAction) =>
-  [action.type, action.keys?.join("+") ?? "", action.system ?? "", action.mouse ?? ""].join("|");
+  [action.type, action.keys?.join("+") ?? "", action.system ?? "", action.mouse ?? "", action.layer ?? "", action.profile ?? ""].join("|");
 const PRESETS_BY_IDENTITY = new Map(PRESETS.map((preset) => [identity(preset.action), preset]));
 
 export const presetFor = (action: ButtonAction) => PRESETS_BY_IDENTITY.get(identity(action));
@@ -111,6 +111,12 @@ export function describeAction(action: ButtonAction) {
       return MOUSE_BUTTONS[action.mouse ?? ""] ?? "Mouse button";
     case "macro":
       return (useAgent().state.value?.macros.find((m) => m.id === action.macro)?.name ?? "Deleted macro") + repeat;
+    case "layer":
+      return action.layer === "momentary" ? "Hold second layer" : "Toggle second layer";
+    case "profile": {
+      const name = useAgent().state.value?.profiles.find((p) => p.id === action.profile)?.name;
+      return name ? `Switch to ${name}` : "Switch to a deleted profile";
+    }
     default:
       return "Nothing";
   }

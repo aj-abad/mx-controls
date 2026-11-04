@@ -31,7 +31,7 @@ export function useMacros() {
       .map((use) =>
         use.preset
           ? `${presets.find(use.preset)?.name ?? "A gesture preset"} gesture`
-          : `${use.button === "thumbwheel" ? "Thumb wheel" : presets.buttonLabel(use.button ?? "")} · ${profileName(use.profile ?? "")}`,
+          : `${use.button === "thumbwheel" ? "Thumb wheel" : presets.buttonLabel(use.button ?? "")} · ${profileName(use.profile ?? "")}${use.layer ? " (second layer)" : ""}`,
       );
   }
 
