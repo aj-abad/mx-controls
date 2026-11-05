@@ -115,6 +115,24 @@ public class ShortcutMatcherTests
         Assert.Equal([1], fired);
     }
 
+    [Theory]
+    [InlineData("F13")] [InlineData("F14")] [InlineData("F15")] [InlineData("F16")]
+    [InlineData("F17")] [InlineData("F18")] [InlineData("F19")] [InlineData("F20")]
+    [InlineData("F21")] [InlineData("F22")] [InlineData("F23")] [InlineData("F24")]
+    public void TheHighFunctionKeysWorkAloneAndWithModifiers(string key)
+    {
+        Assert.Null(ShortcutMatcher.Problem([key]));
+        Assert.Null(ShortcutMatcher.Problem(["ControlLeft", key]));
+
+        var (matcher, fired) = Make((1, [key]), (2, ["ControlLeft", key]));
+        Assert.True(matcher.OnKey(key, true));
+        Assert.True(matcher.OnKey(key, false));
+        matcher.OnKey("ControlLeft", true);
+        Assert.True(matcher.OnKey(key, true));
+
+        Assert.Equal([1, 2], fired);
+    }
+
     [Fact]
     public void KeysWithoutACodeAreIgnored()
     {
