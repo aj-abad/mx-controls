@@ -4,7 +4,7 @@ import type { AgentState } from "../../app/composables/useAgent";
 export function initialState(): AgentState {
   return {
     connected: true, optionsPlusRunning: false, error: null, revision: 0,
-    startAtLogin: false, multiClickMs: 300,
+    startAtLogin: false, multiClickMs: 300, hostShortcuts: [],
     profiles: [
       {
         id: "default", name: "Default", icon: null, programs: [],

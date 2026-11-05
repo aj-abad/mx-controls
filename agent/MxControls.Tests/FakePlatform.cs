@@ -20,6 +20,7 @@ internal sealed class FakePlatform : IPlatform, IInputInjector
     public IInputInjector Input => this;
     public ILoginItem LoginItem => throw new NotSupportedException();
     public IKeyCapture? KeyCapture => null;
+    public IKeyWatch? KeyWatch => null;
     public IPrograms? Programs => null;
 
     public bool Supports(string code) => code is "ShiftLeft" or "ControlLeft" or "KeyC" or "KeyV" or "Delete" or "MediaPlayPause";

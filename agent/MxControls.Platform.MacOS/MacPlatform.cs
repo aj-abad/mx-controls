@@ -16,6 +16,7 @@ public sealed class MacPlatform : IPlatform
     public IInputInjector Input => _input;
     public ILoginItem LoginItem { get; } = new MacLoginItem();
     public IKeyCapture? KeyCapture { get; } = new MacKeyCapture();
+    public IKeyWatch? KeyWatch { get; } = new MacKeyWatch();
     public IPrograms? Programs { get; } = new MacPrograms();
 
     public bool SupportsSystem(string name) =>

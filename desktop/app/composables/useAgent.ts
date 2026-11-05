@@ -25,6 +25,8 @@ export interface AgentState {
   revision: number;
   /** How long a click waits for another, on buttons with a double click set. One setting for every button. */
   multiClickMs: number;
+  /** Keys that send the mouse to an Easy-Switch channel, from any app. */
+  hostShortcuts: { host: number; keys: string[] }[];
   /** Every preset: the built-in ones, as edited if they have been, then the user's own. */
   gesturePresets: GesturePreset[];
   /** The built-in presets as they come, to tell an edited one and reset it. */
@@ -277,6 +279,7 @@ const OPTIMISTIC = new Set([
   "setStartAtLogin",
   "setMultiClickMs",
   "setHostName",
+  "setHostShortcut",
   "setGesturePreset",
   "setMacro",
   "setProfilePrograms",
@@ -291,6 +294,7 @@ function settingKey(method: string, params: Record<string, unknown>) {
   if (method === "setMacro") return `${method}:${(params.macro as { id: string }).id}`;
   if (method === "setBindings" || method === "setThumbWheel") return `${method}:${params.profile ?? ""}:${!!params.layer}`;
   if (method === "setProfilePrograms") return `${method}:${params.id}`;
+  if (method === "setHostShortcut") return `${method}:${params.host}`;
   return method;
 }
 const DEBOUNCE_MS = 150;

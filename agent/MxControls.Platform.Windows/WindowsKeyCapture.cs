@@ -12,12 +12,12 @@ namespace MxControls.Platform.Windows;
 [SupportedOSPlatform("windows")]
 public sealed unsafe partial class WindowsKeyCapture : IKeyCapture
 {
-    private const int WhKeyboardLl = 13;
-    private const uint WmKeyDown = 0x0100;
-    private const uint WmSysKeyDown = 0x0104;
+    internal const int WhKeyboardLl = 13;
+    internal const uint WmKeyDown = 0x0100;
+    internal const uint WmSysKeyDown = 0x0104;
     private const uint WmCheckIdle = 0x8000;
-    private const uint LlkhfExtended = 0x01;
-    private const uint LlkhfInjected = 0x10;
+    internal const uint LlkhfExtended = 0x01;
+    internal const uint LlkhfInjected = 0x10;
 
     // Auto-repeat comes far more often than this. A key-down after a longer gap is a new press whose key-up we
     // never saw, as when Ctrl+Alt+Del or Win+L switches desktops mid-recording.
@@ -36,7 +36,7 @@ public sealed unsafe partial class WindowsKeyCapture : IKeyCapture
     private readonly Dictionary<uint, uint> _held = [];
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct KbdLlHookStruct
+    internal struct KbdLlHookStruct
     {
         public uint VkCode;
         public uint ScanCode;
@@ -46,7 +46,7 @@ public sealed unsafe partial class WindowsKeyCapture : IKeyCapture
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct Msg
+    internal struct Msg
     {
         public nint Hwnd;
         public uint Message;
@@ -59,31 +59,31 @@ public sealed unsafe partial class WindowsKeyCapture : IKeyCapture
     }
 
     [LibraryImport("user32.dll", SetLastError = true)]
-    private static partial nint SetWindowsHookExW(int idHook, delegate* unmanaged<int, nint, nint, nint> proc, nint module, uint threadId);
+    internal static partial nint SetWindowsHookExW(int idHook, delegate* unmanaged<int, nint, nint, nint> proc, nint module, uint threadId);
 
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool UnhookWindowsHookEx(nint hook);
+    internal static partial bool UnhookWindowsHookEx(nint hook);
 
     [LibraryImport("user32.dll")]
-    private static partial nint CallNextHookEx(nint hook, int code, nint wParam, nint lParam);
+    internal static partial nint CallNextHookEx(nint hook, int code, nint wParam, nint lParam);
 
     [LibraryImport("user32.dll")]
-    private static partial int GetMessageW(out Msg message, nint hwnd, uint min, uint max);
-
-    [LibraryImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool PeekMessageW(out Msg message, nint hwnd, uint min, uint max, uint remove);
+    internal static partial int GetMessageW(out Msg message, nint hwnd, uint min, uint max);
 
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool PostThreadMessageW(uint threadId, uint message, nint wParam, nint lParam);
+    internal static partial bool PeekMessageW(out Msg message, nint hwnd, uint min, uint max, uint remove);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool PostThreadMessageW(uint threadId, uint message, nint wParam, nint lParam);
 
     [LibraryImport("kernel32.dll")]
-    private static partial uint GetCurrentThreadId();
+    internal static partial uint GetCurrentThreadId();
 
     [LibraryImport("kernel32.dll", StringMarshalling = StringMarshalling.Utf16)]
-    private static partial nint GetModuleHandleW(string? name);
+    internal static partial nint GetModuleHandleW(string? name);
 
     public void Start(Action<string?, bool> onKey)
     {

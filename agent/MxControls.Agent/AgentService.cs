@@ -42,6 +42,9 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
     private IDisposable? _arrivals;
     private DateTime _batteryReadAt;
     private KeyRecorder? _recorder;
+    private readonly ShortcutMatcher _shortcuts = new();
+    // Watching keys failed, most likely for want of the permission, so each poll tries again.
+    private volatile bool _watchFailed;
     // What `macro` actions run; both engines read it, and it changes with the settings.
     private readonly MacroLibrary _macros = new();
     // The program in front, written by the platform's watcher thread.
@@ -67,7 +70,8 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
                 settings.AllProfiles.Select(Summary).ToArray(), running.Id,
                 settings.StartAtLogin, _optionsPlus, _error, Interlocked.Read(ref _revision), settings.MultiClickMs,
                 settings.AllPresets, PresetLibrary.BuiltIn, PresetUses(settings), settings.Macros ?? [], MacroUses(settings),
-                settings.Active.Id, _engine?.LayerActive ?? false, platform.Programs is not null, AgentBuild.Hash);
+                settings.Active.Id, _engine?.LayerActive ?? false, platform.Programs is not null, AgentBuild.Hash,
+                settings.HostShortcuts ?? []);
         }
     }
 
@@ -83,6 +87,8 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
     public async Task RunAsync(CancellationToken stop)
     {
         ApplyLoginItem();
+        _shortcuts.Fired += OnHostShortcut;
+        TryWatchHostShortcuts();
         try
         {
             _foregroundWatch = platform.Programs?.WatchForeground(OnForeground);
@@ -139,6 +145,13 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
             _optionsPlus = optionsPlus;
             changed = true;
         }
+
+        if (_watchFailed)
+            await _queue.RunAsync(() =>
+            {
+                TryWatchHostShortcuts();
+                return Task.CompletedTask;
+            });
 
         await _queue.RunAsync(async () =>
         {
@@ -589,7 +602,16 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
                 });
                 break;
             case "startKeyCapture":
-                LazyInitializer.EnsureInitialized(ref _recorder, CreateRecorder).Start();
+                _shortcuts.Suspended = true;
+                try
+                {
+                    LazyInitializer.EnsureInitialized(ref _recorder, CreateRecorder).Start();
+                }
+                catch
+                {
+                    _shortcuts.Suspended = false;
+                    throw;
+                }
                 return null;
             case "stopKeyCapture":
                 StopKeyCapture();
@@ -606,6 +628,19 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
                 int host = args.GetProperty("host").GetInt32();
                 await _queue.RunAsync(() => SwitchHostAsync(host));
                 return State;
+            case "setHostShortcut":
+                int shortcutHost = args.GetProperty("host").GetInt32();
+                var shortcutKeys = args.TryGetProperty("keys", out var keysArg) && keysArg.ValueKind == JsonValueKind.Array
+                    ? keysArg.EnumerateArray().Select(k => k.GetString() ?? "").ToArray()
+                    : null;
+                if (shortcutKeys is not null)
+                    CheckHostShortcut(shortcutKeys);
+                await _queue.RunAsync(async () =>
+                {
+                    await ChangeSettingsAsync(s => WithHostShortcut(s, shortcutHost, shortcutKeys), apply: false);
+                    WatchHostShortcuts();
+                });
+                break;
             case "listPrograms":
                 return (platform.Programs?.Running() ?? []).ToArray();
             case "setProfilePrograms":
@@ -821,15 +856,88 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
         await mx.Hosts.SwitchAsync(host);
     }
 
+    private void CheckHostShortcut(IReadOnlyList<string> keys)
+    {
+        if (ShortcutMatcher.Problem(keys) is { } problem)
+            throw new ArgumentException(problem);
+        if (keys.FirstOrDefault(k => !platform.Input.Supports(k)) is { } unknown)
+            throw new ArgumentException($"'{unknown}' can't be part of a shortcut.");
+    }
+
+    private static AgentSettings WithHostShortcut(AgentSettings settings, int host, IReadOnlyList<string>? keys)
+    {
+        var others = (settings.HostShortcuts ?? []).Where(s => s.Host != host).ToArray();
+        if (keys is null)
+            return settings with { HostShortcuts = others };
+        if (others.FirstOrDefault(s => ShortcutMatcher.Same(s.Keys, keys)) is { } taken)
+            throw new ArgumentException($"That shortcut already switches to channel {taken.Host + 1}.");
+        return settings with { HostShortcuts = [.. others, new HostShortcut(host, keys)] };
+    }
+
+    /// <summary>Listens for the channels' shortcuts, for as long as there are any. Only call it in the queue's turn.</summary>
+    private void WatchHostShortcuts()
+    {
+        var shortcuts = _settings.HostShortcuts ?? [];
+        _shortcuts.Set(shortcuts.Select(s => (s.Host, s.Keys)));
+        _watchFailed = false;
+        try
+        {
+            if (shortcuts.Count == 0)
+                platform.KeyWatch?.Stop();
+            else if (platform.KeyWatch is { } watch)
+                watch.Start(_shortcuts.OnKey);
+            else
+                throw new NotSupportedException("This platform can't watch for shortcuts.");
+        }
+        catch
+        {
+            _watchFailed = platform.KeyWatch is not null;
+            throw;
+        }
+    }
+
+    private void TryWatchHostShortcuts()
+    {
+        try
+        {
+            WatchHostShortcuts();
+        }
+        catch (Exception error)
+        {
+            Log.Write($"Watching for the Easy-Switch shortcuts failed: {error.Message}");
+        }
+    }
+
+    // On the platform's hook thread, which mustn't wait for the mouse.
+    private void OnHostShortcut(int host) => _ = Task.Run(async () =>
+    {
+        try
+        {
+            await _queue.RunAsync(() => SwitchHostAsync(host));
+        }
+        catch (Exception error)
+        {
+            Log.Write($"The shortcut for channel {host + 1} couldn't switch the mouse: {error.Message}");
+        }
+    });
+
     /// <summary>Hands the keyboard back if a client was recording a shortcut.</summary>
-    public void StopKeyCapture() => _recorder?.Stop();
+    public void StopKeyCapture()
+    {
+        _recorder?.Stop();
+        _shortcuts.Suspended = false;
+    }
 
     private KeyRecorder CreateRecorder()
     {
         var capture = platform.KeyCapture ?? throw new NotSupportedException("This platform can't record keys for the app.");
         var recorder = new KeyRecorder(capture, KeyCaptureTimeout);
         recorder.Key += (code, down) => Published?.Invoke("key", new KeyEvent(code, down));
-        recorder.TimedOut += () => Published?.Invoke("keyCapture", new KeyCaptureEvent(false));
+        recorder.TimedOut += () =>
+        {
+            _shortcuts.Suspended = false;
+            Published?.Invoke("keyCapture", new KeyCaptureEvent(false));
+        };
         return recorder;
     }
 
@@ -1002,6 +1110,7 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
         _foregroundWatch?.Dispose();
         _arrivals?.Dispose();
         _recorder?.Dispose();
+        platform.KeyWatch?.Stop();
         await _queue.RunAsync(() => DropDeviceAsync(null));
     }
 }

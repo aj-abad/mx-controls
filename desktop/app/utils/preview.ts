@@ -147,6 +147,7 @@ export function previewState(): AgentState {
     startAtLogin: true,
     revision: 0,
     multiClickMs: 300,
+    hostShortcuts: [],
     builtInPresets: builtIn,
     gesturePresets: [
       ...builtIn,
@@ -277,6 +278,11 @@ function apply(state: AgentState, method: string, params: Record<string, unknown
       return { ...state, startAtLogin: params.enabled as boolean };
     case "setMultiClickMs":
       return { ...state, multiClickMs: params.ms as number };
+    case "setHostShortcut": {
+      const others = state.hostShortcuts.filter((s) => s.host !== params.host);
+      const keys = params.keys as string[] | null;
+      return { ...state, hostShortcuts: keys ? [...others, { host: params.host as number, keys }] : others };
+    }
     case "setDpi":
       return { ...state, device: { ...device, dpi: { ...device.dpi, current: params.dpi as number } } };
     case "setScrollInverted":
