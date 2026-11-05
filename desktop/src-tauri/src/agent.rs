@@ -2,7 +2,9 @@
 //! and over the Unix socket .NET makes for the same pipe name elsewhere.
 
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::path::Path;
 #[cfg(not(feature = "ui-tests"))]
 use std::path::PathBuf;
 #[cfg(not(feature = "ui-tests"))]
@@ -78,11 +80,12 @@ pub async fn run(app: AppHandle, agent: Arc<Agent>) {
     {
         eprintln!("MX Studio: couldn't unpack the agent: {error}");
     }
+    let mut expected_hash = tokio::task::spawn_blocking(expected_agent_hash).await.ok().flatten();
     #[cfg(not(feature = "ui-tests"))]
     let mut launched: Option<Instant> = None;
     loop {
         match connect().await {
-            Ok(stream) => serve(&app, &agent, stream).await,
+            Ok(stream) => serve(&app, &agent, stream, &mut expected_hash).await,
             #[cfg(not(feature = "ui-tests"))]
             Err(_) if launched.is_none_or(|at| at.elapsed() >= RELAUNCH_DELAY) => {
                 launched = Some(Instant::now());
@@ -94,7 +97,10 @@ pub async fn run(app: AppHandle, agent: Arc<Agent>) {
     }
 }
 
-async fn serve<S>(app: &AppHandle, agent: &Arc<Agent>, stream: S)
+/// Takes the hash on the agent's first state and stops an agent from another build, such as one left running through
+/// an update. `run` then starts this build's. Only once per run, so two different builds open together can't keep
+/// stopping each other's agent.
+async fn serve<S>(app: &AppHandle, agent: &Arc<Agent>, stream: S, expected_hash: &mut Option<String>)
 where
     S: AsyncRead + AsyncWrite + Send + 'static,
 {
@@ -123,6 +129,17 @@ where
             continue;
         };
         if message.get("event").is_some() {
+            if message["event"] == "state" {
+                if let Some(expected) = expected_hash.take() {
+                    if message["data"]["agentHash"].as_str() != Some(expected.as_str()) {
+                        if let Some(outbox) = agent.outbox.lock().await.as_ref() {
+                            // Id 0 is never a pending call, so the reply is dropped.
+                            let _ = outbox.send(json!({ "id": 0, "method": "shutdown" }).to_string());
+                        }
+                        continue;
+                    }
+                }
+            }
             let _ = app.emit("agent://event", message);
             continue;
         }
@@ -155,6 +172,27 @@ async fn connect() -> std::io::Result<tokio::net::windows::named_pipe::NamedPipe
 async fn connect() -> std::io::Result<tokio::net::UnixStream> {
     // .NET's NamedPipeServerStream listens on this socket in the temp folder.
     tokio::net::UnixStream::connect(std::env::temp_dir().join(format!("CoreFxPipe_{}", pipe_name()))).await
+}
+
+/// What the running agent's hash should be, or None to accept any agent. Development builds accept any, because an
+/// agent writes its own path into the login item, and a dev agent must not take over from the installed one.
+fn expected_agent_hash() -> Option<String> {
+    #[cfg(any(feature = "ui-tests", debug_assertions))]
+    return None;
+    #[cfg(not(any(feature = "ui-tests", debug_assertions)))]
+    {
+        if std::env::var_os("MX_AGENT_PATH").is_some() {
+            return None;
+        }
+        hash_file(&agent_path()?).ok()
+    }
+}
+
+/// The lowercase hex SHA-256 of a file; `AgentBuild` in the agent computes the same.
+#[cfg_attr(any(feature = "ui-tests", debug_assertions), allow(dead_code))]
+fn hash_file(path: &Path) -> std::io::Result<String> {
+    let digest = Sha256::digest(std::fs::read(path)?);
+    Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 /// `MX_AGENT_PATH`, the agent a portable build unpacked, or the `mx-agent` sidecar, which Tauri places beside the
@@ -206,4 +244,16 @@ pub fn hide_window(command: &mut Command) {
     }
     #[cfg(not(windows))]
     let _ = command;
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn hash_file_matches_the_agents_format() {
+        let path = std::env::temp_dir().join(format!("mx-hash-test-{}", std::process::id()));
+        std::fs::write(&path, "abc").unwrap();
+        let hash = super::hash_file(&path);
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(hash.unwrap(), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    }
 }

@@ -67,7 +67,7 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
                 settings.AllProfiles.Select(Summary).ToArray(), running.Id,
                 settings.StartAtLogin, _optionsPlus, _error, Interlocked.Read(ref _revision), settings.MultiClickMs,
                 settings.AllPresets, PresetLibrary.BuiltIn, PresetUses(settings), settings.Macros ?? [], MacroUses(settings),
-                settings.Active.Id, _engine?.LayerActive ?? false, platform.Programs is not null);
+                settings.Active.Id, _engine?.LayerActive ?? false, platform.Programs is not null, AgentBuild.Hash);
         }
     }
 

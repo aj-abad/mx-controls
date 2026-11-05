@@ -15,6 +15,7 @@
     "tauri": "tauri",
     "app": "pnpm agent && tauri dev",
     "build": "tauri build",
+    "install-app": "node scripts/install-app.mjs",
     "postinstall": "nuxt prepare",
     "typecheck": "nuxt typecheck",
     "test:native:build": "node scripts/build-native-tests.mjs",

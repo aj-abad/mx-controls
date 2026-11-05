@@ -28,12 +28,13 @@ public static class Protocol
 /// <param name="SelectedProfile">The profile chosen by hand or a <c>profile</c> action; it never follows programs.</param>
 /// <param name="LayerActive">Whether the running profile's second layer is on.</param>
 /// <param name="FollowsPrograms">Whether this platform can tell which program is in front, so profiles can follow programs.</param>
+/// <param name="AgentHash">The SHA-256 of the running agent's executable, so an app can tell an agent from another build.</param>
 public sealed record AgentState(
     bool Connected, DeviceState? Device, IReadOnlyList<ButtonBinding> Bindings, ThumbWheelSettings ThumbWheel,
     IReadOnlyList<ProfileSummary> Profiles, string ActiveProfile, bool StartAtLogin, bool OptionsPlusRunning, string? Error,
     long Revision, int MultiClickMs, IReadOnlyList<GesturePreset> GesturePresets, IReadOnlyList<GesturePreset> BuiltInPresets,
     IReadOnlyList<PresetUse> PresetUses, IReadOnlyList<Macro> Macros, IReadOnlyList<MacroUse> MacroUses,
-    string SelectedProfile, bool LayerActive, bool FollowsPrograms);
+    string SelectedProfile, bool LayerActive, bool FollowsPrograms, string? AgentHash);
 
 /// <param name="Layer">Whether the button is bound in the profile's second layer rather than its main one.</param>
 public sealed record PresetUse(string Preset, string Profile, string Button, bool Layer = false);
