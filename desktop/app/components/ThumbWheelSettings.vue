@@ -8,6 +8,13 @@
   <div v-else class="flex flex-col gap-6">
     <UiSegmented v-model="draft.mode" :options="MODE_OPTIONS" label="What the thumb wheel does" @update:model-value="changeMode" />
 
+    <SettingRow
+      :label="draft.mode === 'scroll' ? 'Reverse scroll direction' : 'Reverse direction'"
+      label-for="thumb-invert"
+      description="Swaps left and right.">
+      <UiSwitch id="thumb-invert" v-model="draft.inverted" @update:model-value="save" />
+    </SettingRow>
+
     <div class="flex flex-col gap-4" :class="draft.mode !== 'actions' && 'opacity-40'" :inert="draft.mode !== 'actions' || undefined">
       <div class="flex flex-wrap items-center gap-1.5">
         <span class="mr-0.5 text-xs text-ink-3">Presets</span>
@@ -45,10 +52,6 @@
       :step="5"
       :format="(value) => `${value}%`"
       @commit="save" />
-
-    <SettingRow label="Invert direction" label-for="thumb-invert" description="Swaps left and right.">
-      <UiSwitch id="thumb-invert" v-model="draft.inverted" @update:model-value="save" />
-    </SettingRow>
 
     <button v-if="view.second.value" type="button" class="self-start text-xs text-ink-3 hover:text-ink" @click="inherit">
       Use the main layer's settings instead
