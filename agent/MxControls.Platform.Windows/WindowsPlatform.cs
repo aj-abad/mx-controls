@@ -14,6 +14,7 @@ public sealed class WindowsPlatform : IPlatform
     public IInputInjector Input => _input;
     public ILoginItem LoginItem { get; } = new WindowsLoginItem();
     public IKeyCapture? KeyCapture { get; } = new WindowsKeyCapture();
+    public IKeyWatch? KeyWatch { get; } = new WindowsKeyWatch();
     public IPrograms? Programs { get; } = new WindowsPrograms();
 
     public bool SupportsSystem(string name) =>

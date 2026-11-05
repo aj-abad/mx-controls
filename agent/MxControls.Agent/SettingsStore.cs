@@ -57,6 +57,11 @@ public sealed record ProfileLayer(IReadOnlyList<ButtonBinding>? Bindings = null,
     public bool IsEmpty => AllBindings.Count == 0 && ThumbWheel is null;
 }
 
+/// <summary>Keys that send the mouse to an Easy-Switch channel, from anywhere on this computer.</summary>
+/// <param name="Host">The channel, from 0.</param>
+/// <param name="Keys">Modifiers then one key, as <c>KeyboardEvent.code</c> names.</param>
+public sealed record HostShortcut(int Host, IReadOnlyList<string> Keys);
+
 /// <param name="Bindings">Bindings from before profiles; read once and saved back as the default profile.</param>
 /// <param name="Mappings">Held-key mappings from before bindings; read once and saved back the same way.</param>
 /// <param name="MultiClickMs">How long a click waits for another; one setting for every button and profile.</param>
@@ -64,10 +69,12 @@ public sealed record ProfileLayer(IReadOnlyList<ButtonBinding>? Bindings = null,
 /// The user's own presets, and built-in ones they've edited, under the built-in's ID. They belong to no profile.
 /// </param>
 /// <param name="Macros">The saved macros, which <c>macro</c> actions run by ID. They belong to no profile.</param>
+/// <param name="HostShortcuts">Keys for the Easy-Switch channels. They belong to no profile.</param>
 public sealed record AgentSettings(
     IReadOnlyList<ButtonBinding>? Bindings = null, bool StartAtLogin = true, IReadOnlyList<LegacyMapping>? Mappings = null,
     IReadOnlyList<Profile>? Profiles = null, string? ActiveProfile = null, int MultiClickMs = ClickCounter.DefaultWindowMs,
-    IReadOnlyList<GesturePreset>? GesturePresets = null, IReadOnlyList<Macro>? Macros = null, bool? ScrollInverted = null)
+    IReadOnlyList<GesturePreset>? GesturePresets = null, IReadOnlyList<Macro>? Macros = null, bool? ScrollInverted = null,
+    IReadOnlyList<HostShortcut>? HostShortcuts = null)
 {
     public const int MinMultiClickMs = 150;
     public const int MaxMultiClickMs = 600;

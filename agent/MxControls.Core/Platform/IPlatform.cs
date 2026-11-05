@@ -57,6 +57,22 @@ public interface IKeyCapture
     void Stop();
 }
 
+/// <summary>
+/// Sees every key the user presses in any app, for global shortcuts, and hides the ones it's told to. Keys typed by
+/// software aren't reported.
+/// </summary>
+public interface IKeyWatch
+{
+    /// <summary>
+    /// Reports each key going down, auto-repeat included, or up as its <c>KeyboardEvent.code</c> name, or null for a
+    /// key without one. The callback returns whether to hide that event from apps; it runs on the platform's hook
+    /// thread and must return quickly. Starting again only replaces the callback.
+    /// </summary>
+    void Start(Func<string?, bool, bool> onKey);
+
+    void Stop();
+}
+
 /// <summary>Starts a program when the user signs in.</summary>
 public interface ILoginItem
 {
@@ -94,6 +110,9 @@ public interface IPlatform
 
     /// <summary>Null where the platform can't take over the keyboard; the app then records keys in its own window.</summary>
     IKeyCapture? KeyCapture { get; }
+
+    /// <summary>Null where the platform can't watch keys in other apps; global shortcuts then can't be set.</summary>
+    IKeyWatch? KeyWatch { get; }
 
     /// <summary>Named actions whose keys differ by platform, such as "taskView"; see <see cref="Actions.SystemActions"/>.</summary>
     bool SupportsSystem(string name);

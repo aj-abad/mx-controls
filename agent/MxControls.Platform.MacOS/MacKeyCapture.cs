@@ -11,21 +11,21 @@ namespace MxControls.Platform.MacOS;
 public sealed unsafe partial class MacKeyCapture : IKeyCapture
 {
     private const string Graphics = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics";
-    private const int SessionEventTap = 1;
-    private const int HeadInsert = 0;
-    private const int DefaultTap = 0;
-    private const uint KeyDown = 10;
-    private const uint KeyUp = 11;
-    private const uint FlagsChanged = 12;
-    private const uint TapDisabledByTimeout = 0xFFFFFFFE;
-    private const uint TapDisabledByUserInput = 0xFFFFFFFF;
+    internal const int SessionEventTap = 1;
+    internal const int HeadInsert = 0;
+    internal const int DefaultTap = 0;
+    internal const uint KeyDown = 10;
+    internal const uint KeyUp = 11;
+    internal const uint FlagsChanged = 12;
+    internal const uint TapDisabledByTimeout = 0xFFFFFFFE;
+    internal const uint TapDisabledByUserInput = 0xFFFFFFFF;
     private const int FieldAutorepeat = 8;
-    private const int FieldKeycode = 9;
-    private const int FieldSourcePid = 41;
+    internal const int FieldKeycode = 9;
+    internal const int FieldSourcePid = 41;
     private const ushort CapsLock = 57;
 
     // The flag that says whether each modifier key is down, by virtual key.
-    private static readonly Dictionary<ushort, ulong> ModifierBits = new()
+    internal static readonly Dictionary<ushort, ulong> ModifierBits = new()
     {
         [56] = 0x2, [60] = 0x4, [59] = 0x1, [62] = 0x2000, [58] = 0x20, [61] = 0x40, [55] = 0x8, [54] = 0x10, [63] = 0x800000,
     };
@@ -44,11 +44,11 @@ public sealed unsafe partial class MacKeyCapture : IKeyCapture
     /// <summary>Keys whose key-down we hid, so their key-up is hidden too. Tap thread only.</summary>
     private readonly HashSet<ushort> _held = [];
 
-    [LibraryImport(Graphics)] private static partial nint CGEventTapCreate(int tap, int place, int options, ulong mask,
+    [LibraryImport(Graphics)] internal static partial nint CGEventTapCreate(int tap, int place, int options, ulong mask,
         delegate* unmanaged<nint, uint, nint, nint, nint> callback, nint userInfo);
-    [LibraryImport(Graphics)] private static partial void CGEventTapEnable(nint port, byte enable);
-    [LibraryImport(Graphics)] private static partial long CGEventGetIntegerValueField(nint e, int field);
-    [LibraryImport(Graphics)] private static partial ulong CGEventGetFlags(nint e);
+    [LibraryImport(Graphics)] internal static partial void CGEventTapEnable(nint port, byte enable);
+    [LibraryImport(Graphics)] internal static partial long CGEventGetIntegerValueField(nint e, int field);
+    [LibraryImport(Graphics)] internal static partial ulong CGEventGetFlags(nint e);
 
     public void Start(Action<string?, bool> onKey)
     {
