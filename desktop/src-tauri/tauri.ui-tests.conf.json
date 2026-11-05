@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "MX Studio UI Tests",
+  "identifier": "app.mxcontrols.desktop.tests",
+  "build": {
+    "beforeBuildCommand": "pnpm generate"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [{
+      "label": "main",
+      "title": "MX Studio UI Tests",
+      "width": 1124,
+      "height": 632,
+      "resizable": false,
+      "maximizable": false,
+      "decorations": false,
+      "shadow": true,
+      "transparent": true,
+      "windowEffects": { "effects": ["acrylic"] },
+      "visible": false,
+      "focus": false,
+      "focusable": false,
+      "skipTaskbar": true
+    }]
+  },
+  "bundle": {
+    "active": false,
+    "externalBin": []
+  }
+}

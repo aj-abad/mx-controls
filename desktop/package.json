@@ -1,0 +1,44 @@
+{
+  "name": "mx-controls-desktop",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test tests/macroEditing.test.ts",
+    "dev": "nuxt dev --host 127.0.0.1 --port 3000",
+    "generate": "nuxt generate",
+    "agent": "node scripts/build-agent.mjs",
+    "mac-icon": "node scripts/build-mac-icon.mjs",
+    "icons": "node scripts/build-icons.mjs",
+    "tauri": "tauri",
+    "app": "pnpm agent && tauri dev",
+    "build": "tauri build",
+    "postinstall": "nuxt prepare",
+    "typecheck": "nuxt typecheck",
+    "test:native:build": "node scripts/build-native-tests.mjs",
+    "test:native:run": "playwright test -c playwright.native.config.ts",
+    "test:native": "pnpm test:native:build && pnpm test:native:typecheck && pnpm test:native:run",
+    "test:native:typecheck": "vue-tsc --noEmit -p tsconfig.native-tests.json"
+  },
+  "dependencies": {
+    "@fontsource-variable/schibsted-grotesk": "^5.3.0",
+    "@phosphor-icons/vue": "^2.2.1",
+    "@tauri-apps/api": "^2.12.4",
+    "motion-v": "^2.8.0",
+    "nuxt": "^4.6.3",
+    "reka-ui": "^2.11.0",
+    "tailwindcss": "^4.3.3",
+    "vue": "^3.5.44",
+    "vue-router": "^5.4.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tauri-apps/cli": "^2.12.4",
+    "@types/node": "^26.6.6",
+    "typescript": "^5.9.3",
+    "vue-tsc": "^3.3.13"
+  }
+}
