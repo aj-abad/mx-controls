@@ -20,5 +20,6 @@ tauri-build = { version = "2", features = [] }
 # The window is transparent so its system backdrop shows through, which macOS only allows through its private API.
 tauri = { version = "2", features = ["macos-private-api"] }
 serde_json = "1"
+sha2 = "0.10"
 tokio = { version = "1", features = ["io-util", "net", "sync", "time", "macros"] }
 tauri-plugin-single-instance = "2"

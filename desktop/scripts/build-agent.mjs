@@ -2,6 +2,7 @@
 // Skips the publish when the binary is newer than every agent source file; `--force` publishes anyway.
 import { execFileSync } from "node:child_process";
 import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readdirSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -82,7 +83,11 @@ function newestSource(folder) {
 
 function publishEnvironment() {
   const env = { ...process.env };
-  if (process.platform !== "win32") return env;
+  if (process.platform !== "win32") {
+    // dotnet-install's default folder, which it leaves off PATH.
+    env.PATH = `${join(homedir(), ".dotnet")}:${env.PATH ?? ""}`;
+    return env;
+  }
   // NativeAOT finds the MSVC linker by running vswhere, which the Visual Studio installer doesn't put on PATH.
   const pathKey = Object.keys(env).find((key) => key.toUpperCase() === "PATH") ?? "Path";
   const installer = join(env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)", "Microsoft Visual Studio", "Installer");

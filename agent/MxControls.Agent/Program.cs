@@ -19,6 +19,9 @@ if (instance is null)
     return 0;
 }
 
+// Read now, while the file on disk is still the one running; an update can replace it at any time.
+_ = AgentBuild.Hash;
+
 var store = new SettingsStore();
 Log.Open(store.Folder);
 Log.Write($"Agent started; settings in {store.Folder}");
