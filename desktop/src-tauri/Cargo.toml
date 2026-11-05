@@ -1,0 +1,24 @@
+[package]
+name = "mx-controls"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "mx_controls_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+# One portable exe with the agent inside it, for `deploy.cmd`. The installer ships the agent beside the app instead.
+embedded-agent = []
+# Hidden, debug-only shell connected exclusively to a per-run simulated agent.
+ui-tests = []
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# The window is transparent so its system backdrop shows through, which macOS only allows through its private API.
+tauri = { version = "2", features = ["macos-private-api"] }
+serde_json = "1"
+tokio = { version = "1", features = ["io-util", "net", "sync", "time", "macros"] }
+tauri-plugin-single-instance = "2"

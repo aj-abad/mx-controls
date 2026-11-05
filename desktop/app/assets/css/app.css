@@ -1,0 +1,129 @@
+@import "tailwindcss";
+
+/* Follows the system's light or dark. Lines and fills are see-through, so they sit on any surface, the window's
+   backdrop included. */
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+
+  --color-canvas: #ffffff;
+  --color-panel: #f5f5f7;
+  --color-field: #ffffff;
+  --color-ink: #141414;
+  --color-ink-2: #4a4a4a;
+  --color-ink-3: #7d7d7d;
+  /* Text and icons on an ink fill, such as a primary button or a chosen chip. */
+  --color-on-ink: #ffffff;
+  --color-line: rgb(20 20 30 / 0.11);
+  --color-fill: rgb(20 20 30 / 0.085);
+  --color-fill-strong: rgb(20 20 30 / 0.17);
+  --color-accent: #006fe6;
+  /* Keeps small white button labels legible in both appearances. */
+  --color-action: #006fe6;
+  --color-warn: #a15c07;
+  --color-warn-fill: #fff3e0;
+  --color-good: #138a43;
+  --color-danger: #e5484d;
+
+  /* Menus open fast and close faster: they answer a click, so they shouldn't hold it up. Reka keeps a closed
+     menu in the page until its animation ends. The curve is EASE_OUT in utils/motion.ts. */
+  --animate-menu-in: menu-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  --animate-menu-out: menu-out 100ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
+
+  @keyframes menu-in {
+    from {
+      opacity: 0;
+      transform: scale(0.97);
+    }
+  }
+  @keyframes menu-out {
+    to {
+      opacity: 0;
+    }
+  }
+
+  /* A nearly flat battery blinks, slowly enough to read as a warning rather than an error. */
+  --animate-battery-flash: battery-flash 1.4s ease-in-out infinite;
+
+  @keyframes battery-flash {
+    50% {
+      opacity: 0.25;
+    }
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-canvas: #1c1c1e;
+    --color-panel: #262628;
+    --color-field: #323234;
+    --color-ink: #f5f5f7;
+    --color-ink-2: #c7c7cc;
+    --color-ink-3: #8e8e93;
+    --color-on-ink: #141414;
+    --color-line: rgb(255 255 255 / 0.11);
+    --color-fill: rgb(255 255 255 / 0.08);
+    --color-fill-strong: rgb(255 255 255 / 0.17);
+    --color-accent: #409cff;
+    --color-warn: #f2b45c;
+    --color-warn-fill: rgb(242 160 60 / 0.15);
+    --color-good: #34c76f;
+    --color-danger: #ff6369;
+  }
+}
+
+/* In the app the window is see-through over the system's acrylic or Liquid Glass. The page's background is a scrim
+   that evens out whatever is behind the window, so text keeps its contrast, and panels only tint it. A browser has
+   no backdrop and keeps them solid. */
+:root[data-glass] {
+  --color-canvas: rgb(250 250 252 / 0.6);
+  --color-panel: rgb(255 255 255 / 0.55);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-glass] {
+    --color-canvas: rgb(18 18 20 / 0.55);
+    --color-panel: rgb(255 255 255 / 0.06);
+  }
+}
+
+/* For things drawn on the device photo, which stays light whatever the theme. */
+.on-photo {
+  --color-ink: #141414;
+  --color-fill-strong: #d4d4d8;
+}
+
+html {
+  color-scheme: light dark;
+}
+
+html,
+body,
+#__nuxt {
+  height: 100%;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* Reduce Motion: menus fade without moving, and a flat battery stays red without blinking. */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes battery-flash {
+  }
+  @keyframes menu-in {
+    from {
+      opacity: 0;
+    }
+  }
+}
+
+/* A contained fallback ring. Utilities can supply a control's own focus treatment, including Reka menus. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
+  }
+}

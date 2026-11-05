@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- WinExe so the sign-in task doesn't open a console window; output goes to Logs\agent.log. -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>MxControls.Agent</RootNamespace>
+    <AssemblyName>mx-agent</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../MxControls.Core/MxControls.Core.csproj" />
+    <ProjectReference Include="../MxControls.Platform.Windows/MxControls.Platform.Windows.csproj" />
+    <ProjectReference Include="../MxControls.Platform.MacOS/MxControls.Platform.MacOS.csproj" />
+    <Compile Include="../Shared/Platforms.cs" Link="Platforms.cs" />
+  </ItemGroup>
+</Project>

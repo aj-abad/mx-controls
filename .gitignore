@@ -1,0 +1,30 @@
+# .NET and WinUI
+**/bin/
+**/obj/
+.vs/
+*.user
+*.suo
+*.binlog
+TestResults/
+AppPackages/
+BundleArtifacts/
+
+# Local toolchains and packages
+.build/
+.dotnet/
+.packages/
+
+# Build output
+artifacts/
+
+# Editors and Windows
+.idea/
+.vscode/
+Thumbs.db
+Desktop.ini
+
+# Local secrets
+.env
+.env.*
+
+.claude
