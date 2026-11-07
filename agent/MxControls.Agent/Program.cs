@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.IO.Pipes;
 using MxControls;
 using MxControls.Agent;
 
@@ -8,6 +7,8 @@ const string SupervisorLock = "MxControls.Agent.Supervisor";
 
 if (args.Contains("--stop"))
     return await StopRunningAgentAsync();
+if (args is ["--haptic", .. var hapticArgs])
+    return await PlayHapticAsync(hapticArgs);
 if (!args.Contains("--worker"))
     return await SuperviseAsync();
 
@@ -78,16 +79,7 @@ static async Task<int> StopRunningAgentAsync()
 {
     try
     {
-        await using var pipe = new NamedPipeClientStream(".", Protocol.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-        await pipe.ConnectAsync(2000);
-        using var reader = new StreamReader(pipe, leaveOpen: true);
-        await using var writer = new StreamWriter(pipe, leaveOpen: true) { AutoFlush = true };
-        await writer.WriteLineAsync("""{"id":1,"method":"shutdown"}""");
-        // The agent sends its state first; read until the reply, so neither side waits on the other's buffer.
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-        while (await reader.ReadLineAsync(timeout.Token) is { } line && !line.Contains("\"id\":1"))
-        {
-        }
+        await AgentClient.CallAsync("shutdown", "{}", connectTimeoutMs: 2000, replyTimeout: TimeSpan.FromSeconds(3));
     }
     catch (Exception error) when (error is TimeoutException or IOException or OperationCanceledException)
     {
@@ -100,6 +92,35 @@ static async Task<int> StopRunningAgentAsync()
         if (!InstanceLock.IsHeld(WorkerLock) && !InstanceLock.IsHeld(SupervisorLock))
             return 0;
         await Task.Delay(100);
+    }
+    return 1;
+}
+
+// Asks the running agent to play a waveform and never starts one: the agent has the mouse open, and a program
+// reporting an event shouldn't leave a new agent behind. The exit code is the result, since a WinExe started from a
+// console shows no output unless it's redirected.
+static async Task<int> PlayHapticAsync(string[] args)
+{
+    if (args.Length != 1 || HapticWaveforms.Find(args[0]) is not { } waveform)
+    {
+        Console.Error.WriteLine($"Usage: mx-agent --haptic <waveform>, one of {string.Join(", ", HapticWaveforms.Names)}");
+        return 2;
+    }
+    try
+    {
+        var error = await AgentClient.CallAsync(
+            "playHaptic", $$"""{"waveform":"{{waveform}}"}""", connectTimeoutMs: 500, replyTimeout: TimeSpan.FromSeconds(5));
+        if (error is null)
+            return 0;
+        Console.Error.WriteLine(error);
+    }
+    catch (TimeoutException)
+    {
+        Console.Error.WriteLine("The MX Studio agent isn't running.");
+    }
+    catch (Exception error) when (error is IOException or OperationCanceledException)
+    {
+        Console.Error.WriteLine($"The MX Studio agent didn't reply: {error.Message}");
     }
     return 1;
 }
