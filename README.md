@@ -183,6 +183,8 @@ The agent isn't a Windows service: a service runs in session 0, outside the desk
 
 `mx-agent --stop` asks a running agent to exit cleanly. `pnpm app` and `pnpm build` use it when an agent is running from the build folder, which would stop the sidecar from being replaced; an agent running from anywhere else keeps running. The portable exe uses it before replacing the agent it unpacked. The installer uses it before replacing or removing the agent, and on uninstall it deletes the task and the Run-key entry older builds used.
 
+`mx-agent --haptic <waveform>` asks the running agent to play a waveform, such as `Completed` or `Knock`, for other programs to use as a notification. It never starts an agent, and opens no window. It exits 0 once the mouse has played it, 1 if the agent isn't running, the mouse isn't connected or no reply comes within 5 s, and 2 for an unknown waveform. Errors go to stderr, which a shell only shows when it's redirected. The portable exe's agent is at `%LOCALAPPDATA%\MxControls\mx-agent.exe`.
+
 ## The `mx` command
 
 ```bash
