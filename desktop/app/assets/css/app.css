@@ -85,8 +85,8 @@
   }
 }
 
-/* For things drawn on the device photo, which stays light whatever the theme. */
-.on-photo {
+/* The control map's dots, which stay light chips whatever the theme. */
+.light-dots {
   --color-ink: #141414;
   --color-fill-strong: #d4d4d8;
 }

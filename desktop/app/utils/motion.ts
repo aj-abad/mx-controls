@@ -12,7 +12,7 @@ export const EASE_OUT = [0.23, 1, 0.32, 1] as const;
 /** Small state changes: toggles, the segmented control. */
 export const FAST: Transition = { duration: 0.15, ease: EASE_OUT };
 
-/** Panels and popovers, and the photo making room for a control's settings. */
+/** Panels and popovers, and the drawing making room for a control's settings. */
 export const BASE: Transition = { duration: 0.2, ease: EASE_OUT };
 
 /** Leaving is quicker than arriving, so what's going never holds up what's next. */

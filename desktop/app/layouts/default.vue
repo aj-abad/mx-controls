@@ -68,7 +68,7 @@
         <main class="min-h-0 flex-1 px-6 pb-5">
           <div v-if="!pipeConnected || !device" class="grid h-full place-items-center">
             <div class="flex max-w-sm flex-col items-center text-center">
-              <img src="/mx-master-4.png" alt="" class="mb-2 w-64 opacity-60" />
+              <MouseDrawing :weight="2" aria-hidden="true" class="mb-2 w-64 text-ink-3" />
               <h2 class="text-lg font-semibold">{{ pipeConnected ? 'Connect your MX Master' : 'Starting MX Studio' }}</h2>
               <p class="mt-1 text-sm text-ink-3">{{ pipeConnected ? (state?.error ?? 'Turn the mouse on and connect it to this computer over Bluetooth. It appears here on its own.') : 'Getting the background helper ready. It runs your buttons, even with this window closed.' }}</p>
             </div>

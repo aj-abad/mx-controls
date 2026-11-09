@@ -1,10 +1,10 @@
 /**
  * The main screen is drawn at a fixed design size and scaled to fit the window, so the line from the
  * mouse to the list can be laid out by hand. Only one line shows at a time, for the control under the
- * pointer or open; it runs from a spot on the photo, up or across to an elbow, then straight right to its row.
+ * pointer or open; it runs from a spot on the drawing, up or across to an elbow, then straight right to its row.
  *
- * Where the photo and the list sit is a `Frame`. Opening a control moves from `OVERVIEW` to `FOCUS`, and
- * everything placed against the photo is worked out from the frame, so it can be blended between the two.
+ * Where the drawing and the list sit is a `Frame`. Opening a control moves from `OVERVIEW` to `FOCUS`, and
+ * everything placed against the drawing is worked out from the frame, so it can be blended between the two.
  */
 
 import type { AgentState, ThumbWheelSettings } from "~/composables/useAgent";
@@ -27,7 +27,7 @@ export const GROUPS: { id: GroupId; label: string }[] = [
 export interface Control {
   id: ControlId;
   group: GroupId;
-  /** Where the control sits on `public/mx-master-4.png` (961 × 603), in pixels of the photo. */
+  /** Where the control sits on `MouseDrawing` (961 × 603), in its pixels. */
   spot: Point;
   /**
    * `steep` rises at 75° to its row, for the controls on top of the mouse whose rows sit above it.
@@ -36,7 +36,7 @@ export interface Control {
   leg: "steep" | "gutter";
 }
 
-const PHOTO = { width: 961, height: 603 };
+const DRAWING = { width: 961, height: 603 };
 
 export const STAGE = { width: 1060, height: 540 };
 export const LIST = { x: 720, width: 340, padding: 6, header: 30, row: 44 };
@@ -50,7 +50,7 @@ export interface Frame {
 }
 
 export const OVERVIEW: Frame = { image: { x: 0, y: 126, scale: 0.65 }, edge: LIST.x };
-/** With a control open, the photo steps back to make room for its settings. */
+/** With a control open, the drawing steps back to make room for its settings. */
 export const FOCUS: Frame = { image: { x: 0, y: 120, scale: 0.57 }, edge: INSPECTOR.x };
 
 const mix = (from: number, to: number, t: number) => from + (to - from) * t;
@@ -65,7 +65,7 @@ export const mixFrames = (from: Frame, to: Frame, t: number): Frame => ({
 
 /** Lines stop short of their row, so the round cap doesn't poke into the card. */
 const LINE_GAP = 4;
-/** The column the thumb controls' lines bend at, in pixels of the photo, so it moves with it. */
+/** The column the thumb controls' lines bend at, in pixels of the drawing, so it moves with it. */
 const GUTTER = 750;
 const STEEP = 1 / Math.tan((75 * Math.PI) / 180);
 
@@ -101,7 +101,7 @@ export function layoutList(present: readonly Control[]) {
   return { headers, rows, height: y + LIST.padding };
 }
 
-export const imageSize = ({ image }: Frame) => ({ width: PHOTO.width * image.scale, height: PHOTO.height * image.scale });
+export const imageSize = ({ image }: Frame) => ({ width: DRAWING.width * image.scale, height: DRAWING.height * image.scale });
 
 export const dotAt = (control: Control, { image }: Frame): Point => ({
   x: image.x + control.spot.x * image.scale,

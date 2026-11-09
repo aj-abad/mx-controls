@@ -2,7 +2,7 @@
   <GesturePresets v-if="page === 'gestures'" />
   <MacrosPage v-else-if="page === 'macros'" />
   <FitStage v-else-if="device" :width="STAGE.width" :height="STAGE.height">
-    <!-- The layer being edited. The photo starts lower than this, so it sits in the space above it. -->
+    <!-- The layer being edited. The drawing starts lower than this, so it sits in the space above it. -->
     <div class="absolute top-0 left-0 z-10 flex w-76 flex-col gap-2">
       <UiSegmented
         :model-value="layer"
@@ -29,7 +29,7 @@
       @hover="(id) => (hoveredId = id)" />
 
     <!-- Opening a control pushes the list off to the left and brings its settings in from the right, while the
-         photo steps back to make room; going back reverses it. Both overlap while they cross, so neither waits. -->
+         drawing steps back to make room; going back reverses it. Both overlap while they cross, so neither waits. -->
     <AnimatePresence :initial="false">
       <motion.div
         v-if="!selected"
@@ -328,7 +328,7 @@ const selected = computed(
   () => items.value.find((item) => item.control.id === selectedId.value) ?? null,
 );
 
-// How far the stage has moved from the overview to a control's settings, from 0 to 1. The photo, its dots
+// How far the stage has moved from the overview to a control's settings, from 0 to 1. The drawing, its dots
 // and the line are all placed from the frame this gives, so they move together on the same spring.
 const focus = ref(0);
 const frame = computed(() => mixFrames(OVERVIEW, FOCUS, focus.value));

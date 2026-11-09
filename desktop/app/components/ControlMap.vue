@@ -1,9 +1,8 @@
 <template>
-  <img
-    src="/mx-master-4.png"
-    alt="MX Master 4"
-    draggable="false"
-    class="absolute max-w-none"
+  <MouseDrawing
+    role="img"
+    aria-label="MX Master 4"
+    class="absolute text-ink-3"
     :style="{
       left: `${frame.image.x}px`,
       top: `${frame.image.y}px`,
@@ -13,7 +12,7 @@
 
   <!-- The dots are drawn here with the lines rather than as elements of their own: the stage is zoomed by a
        fractional amount, and elements at fractional spots each snap to the pixel grid on their own, more so
-       while a transition lifts them onto a layer, so they shimmered against the lines and the photo. -->
+       while a transition lifts them onto a layer, so they shimmered against the lines and the drawing. -->
   <svg
     class="pointer-events-none absolute inset-0"
     :width="STAGE.width"
@@ -34,7 +33,7 @@
     <g
       v-for="dot in dots"
       :key="dot.id"
-      class="on-photo transition-opacity duration-150 ease-out [&>*]:origin-center [&>*]:[transform-box:fill-box]"
+      class="light-dots transition-opacity duration-150 ease-out [&>*]:origin-center [&>*]:[transform-box:fill-box]"
       :class="selected && dot.id !== selected && dot.id !== active && 'opacity-50'">
       <!-- Pressing the control on the mouse sends a ring out from its dot, so you can find it by pressing it. -->
       <motion.circle
