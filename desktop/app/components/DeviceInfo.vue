@@ -46,10 +46,9 @@
       </div>
 
       <div class="border-t border-line pt-4 text-sm" v-if="state?.optionsPlusRunning">
-        <span class="rounded-full px-3 py-1 text-xs font-medium bg-warn-fill text-warn">
-          Logi Options+ is running. It is recommended to quit Options+ to avoid conflicts with MX
-          Controls.
-        </span>
+        <p class="text-xs font-medium text-warn">
+          Logi Options+ is running and will conflict with MX Studio.
+        </p>
       </div>
     </UiPopoverContent>
   </PopoverRoot>
