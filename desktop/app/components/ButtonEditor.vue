@@ -1,13 +1,15 @@
 <template>
   <div class="flex flex-col gap-5">
     <section class="flex flex-col gap-3" :aria-label="`${button.name} clicks`">
-      <h3 class="text-xs font-medium text-ink-3">{{ preset ? "Press without moving" : "Press" }}</h3>
+      <h3 class="text-xs font-medium text-ink-3">
+        {{ draft.rose ? "Quick press" : preset ? "Press without moving" : "Press" }}
+      </h3>
       <div class="flex h-8 items-center gap-1" role="group" aria-label="Click count">
         <button
           v-for="count in [1, 2, 3]"
           :key="count"
           type="button"
-          :disabled="count === 3 && !draft.double"
+          :disabled="(count === 3 && !draft.double) || (count > 1 && !!draft.rose)"
           :aria-pressed="clickTab === count"
           class="h-8 flex-1 rounded-lg px-2 text-xs font-medium disabled:opacity-30"
           :class="[
@@ -22,7 +24,9 @@
       </div>
       <div class="flex h-6 items-center justify-between text-xs text-ink-3">
         <span>{{
-          clickTab === 1 ? (preset || waits ? "Runs on release" : "Runs on press") : "Runs on release"
+          clickTab === 1 && draft.rose
+            ? "Runs on a short press that doesn't open the rose"
+            : clickTab === 1 ? (preset || waits ? "Runs on release" : "Runs on press") : "Runs on release"
         }}</span>
         <button
           type="button"
@@ -69,21 +73,40 @@
           >
           for another click.
         </p>
+        <p v-else-if="draft.rose">A rose button runs one click; double and triple clicks aren't available.</p>
         <p v-else>
           Use the double-click tab to add another action. Triple clicks become available after that.
         </p>
       </div>
     </section>
 
-    <section class="flex flex-col gap-3" :aria-label="`${button.name} moves`">
+    <section class="flex flex-col gap-3" :aria-label="`${button.name} while held`">
       <div class="flex items-center justify-between">
-        <h3 class="text-xs font-medium text-ink-3">Gestures while held</h3>
-        <button type="button" class="text-xs text-ink-3 hover:text-ink" @click="emit('openPresets', null)">
+        <h3 class="text-xs font-medium text-ink-3">While held</h3>
+        <button
+          v-if="!draft.rose"
+          type="button"
+          class="text-xs text-ink-3 hover:text-ink"
+          @click="emit('openPresets', null)">
           Browse library ›
         </button>
       </div>
-      <UiSelect v-model="presetChoice" :options="presetOptions" :label="`${button.name} gesture preset`" />
-      <UiScrollArea class="h-48 rounded-xl bg-fill/60 ring-1 ring-line ring-inset" content-class="p-3">
+      <UiSegmented v-model="heldChoice" :options="HELD_OPTIONS" :label="`What ${button.name} does while held`" />
+      <RoseEditor
+        v-if="draft.rose"
+        v-model="draft.rose"
+        :below="inLayer ? (inherited?.mode === 'rose' ? (inherited.rose ?? null) : null) : undefined"
+        :button-id="button.id"
+        :button-name="button.name" />
+      <UiSelect
+        v-if="!draft.rose"
+        v-model="presetChoice"
+        :options="presetOptions"
+        :label="`${button.name} gesture preset`" />
+      <UiScrollArea
+        v-if="!draft.rose"
+        class="h-48 rounded-xl bg-fill/60 ring-1 ring-line ring-inset"
+        content-class="p-3">
         <p v-if="!preset" class="text-[13px] leading-relaxed text-ink-3">
           Hold this button, then move up, down, left or right. Choose a shared preset to assign those
           movements.
@@ -117,7 +140,7 @@
 </template>
 <script setup lang="ts">
 import { PopoverRoot, PopoverTrigger } from "reka-ui";
-import type { ButtonAction, ButtonBinding, ButtonState, Direction } from "~/composables/useAgent";
+import type { ButtonAction, ButtonBinding, ButtonState, Direction, RoseMenu } from "~/composables/useAgent";
 
 const { button, binding, inherited, apply } = defineProps<{
   button: ButtonState;
@@ -159,8 +182,10 @@ interface Draft {
   double: ButtonAction | null;
   triple: ButtonAction | null;
   preset: string | null;
+  /** The rose shown while held, instead of a gesture preset. */
+  rose: RoseMenu | null;
 }
-const draft = ref<Draft>({ click: null, double: null, triple: null, preset: null });
+const draft = ref<Draft>({ click: null, double: null, triple: null, preset: null, rose: null });
 const CLICK_NAMES: Record<number, string> = { 1: "Click", 2: "Double click", 3: "Triple click" };
 const clickTab = ref(1);
 const selectedClick = computed(() =>
@@ -191,7 +216,7 @@ const view = useProfileView();
 const preset = computed(() => presets.find(draft.value.preset));
 
 /** Clicks have to wait or run on release, so a click can't keep a key down or repeat. */
-const waits = computed(() => !!draft.value.double || !!preset.value);
+const waits = computed(() => !!draft.value.double || !!preset.value || !!draft.value.rose);
 
 function reset() {
   const b = binding;
@@ -201,6 +226,7 @@ function reset() {
     double: (legacy ? legacy.doubleClick : b?.doubleClick) ?? null,
     triple: (legacy ? legacy.tripleClick : b?.tripleClick) ?? null,
     preset: b?.mode === "gesture" ? (b.preset ?? null) : null,
+    rose: b?.mode === "rose" && b.rose ? (JSON.parse(JSON.stringify(b.rose)) as RoseMenu) : null,
   };
   if ((clickTab.value === 2 && !draft.value.double) || (clickTab.value === 3 && !draft.value.triple))
     clickTab.value = 1;
@@ -235,7 +261,9 @@ watch(waits, (now) => {
   if (!now || !click) return void (downgraded.value = "");
   const why = draft.value.double
     ? "a click now waits for a second one"
-    : "the click now runs when you let go";
+    : draft.value.rose
+      ? "the quick press now runs when you let go"
+      : "the click now runs when you let go";
   if (click.type === "hold") {
     draft.value.click = { ...click, type: "press", repeat: false };
     downgraded.value = `Since ${why}, the held keys became a keyboard shortcut that taps ${chordLabel(click.keys)} once.`;
@@ -247,6 +275,35 @@ watch(waits, (now) => {
     downgraded.value = `Since ${why}, the click no longer repeats.`;
   }
 });
+
+const HELD_OPTIONS = [
+  { value: "gestures", label: "Gestures" },
+  { value: "rose", label: "Rose menu" },
+];
+const heldChoice = computed({
+  get: () => (draft.value.rose ? "rose" : "gestures"),
+  set: (value) => {
+    if (value === "rose" && !draft.value.rose) startRose();
+    if (value === "gestures") draft.value.rose = null;
+  },
+});
+
+/**
+ * Turns the button into a rose: four empty options, or in the second layer as many as the main layer's rose,
+ * each passing its option through. A rose runs a single quick press, so extra clicks go.
+ */
+function startRose() {
+  const main = inLayer.value && inherited?.mode === "rose" ? inherited.rose : null;
+  draft.value.rose = main
+    ? { items: main.items.map(() => ({ action: NOTHING, passThrough: true })) }
+    : { items: Array.from({ length: 4 }, () => ({ action: NOTHING })) };
+  draft.value.preset = null;
+  if (draft.value.double) {
+    removeDouble();
+    clickTab.value = 1;
+    downgraded.value = "A rose runs one quick press, so the double and triple clicks were removed.";
+  }
+}
 
 const presetOptions = computed(() => [
   { value: "none", label: "None" },
@@ -295,7 +352,8 @@ const presetUsed = computed(() => {
 });
 
 const next = computed<ButtonBinding | null>(() => {
-  const { click, double, triple, preset: presetId } = draft.value;
+  const { click, double, triple, preset: presetId, rose } = draft.value;
+  if (rose) return { button: button.id, mode: "rose", action: click ?? ownAction.value, rose };
   if (!click && !double && !presetId) return null;
   const clicks = double ? { doubleClick: double, ...(triple && { tripleClick: triple }) } : {};
   const action = click ?? ownAction.value;
@@ -312,7 +370,11 @@ const unfinished = computed(() => {
     ["Double click", double],
     ["Triple click", double ? triple : null],
   ];
-  return parts.find(([, action]) => action && !complete(action))?.[0];
+  const options = (draft.value.rose?.items ?? []).map((item, i): [string, ButtonAction | null] => [
+    `Option ${i + 1}`,
+    item.passThrough ? null : item.action,
+  ]);
+  return [...parts, ...options].find(([, action]) => action && !complete(action))?.[0];
 });
 
 // Changes apply as they're made, with Ctrl+Z to put them back, once the agent would take them.

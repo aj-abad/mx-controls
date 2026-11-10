@@ -64,15 +64,18 @@ import {
   PopoverRoot,
   PopoverTrigger,
 } from "reka-ui";
-import type { ButtonAction } from "~/composables/useAgent";
+import type { ButtonAction, ShortcutInfo } from "~/composables/useAgent";
 
 /**
  * Picks an action by what it does: a preset such as "Copy", a saved macro as "macro:<id>", a layer as
- * "layer:momentary" or "layer:toggle", a profile as "profile:<id>", or one of the custom choices: "shortcut" (an
- * inline combination), "hold" (keys held down), and "none". `modelValue` is the ID of the choice shown.
+ * "layer:momentary" or "layer:toggle", a profile as "profile:<id>", a macOS Shortcut as "appleShortcut:<id>",
+ * something to open as "open:app", "open:url" or "open:path", or one of the custom choices: "shortcut" (an inline
+ * combination), "hold" (keys held down), and "none". `modelValue` is the ID of the choice shown.
  */
-const { modelValue, label, allowHold = true, defaultLabel, layers = "none", profiles = false } = defineProps<{
+const { modelValue, label, allowHold = true, defaultLabel, layers = "none", profiles = false, currentName } = defineProps<{
   modelValue: string;
+  /** The name of the app or Shortcut chosen, for a choice the menu can't list right now. */
+  currentName?: string;
   label: string;
   allowHold?: boolean;
   /** Offers "default", what the button does without MX Studio, under this name. */
@@ -83,7 +86,8 @@ const { modelValue, label, allowHold = true, defaultLabel, layers = "none", prof
   profiles?: boolean;
 }>();
 const emit = defineEmits<{
-  "update:modelValue": [id: string];
+  /** For a Shortcut, its name comes along, so the action can say it without looking it up. */
+  "update:modelValue": [id: string, name?: string];
   /** A custom choice was picked and needs its keys; the editor records them once the menu has closed. */
   record: [];
 }>();
@@ -122,13 +126,28 @@ const choices = computed(() => {
     ? [{ id: "default", group: "This button", label: defaultLabel, hint: "default", keywords: "reset own" }]
     : [];
   for (const choice of KEYBOARD) if (allowHold || choice.id !== "hold") all.push({ ...choice, group: "Keyboard" });
-  all.push(...PRESETS.map((preset) => ({
+  all.push(...PRESETS.filter(presetAvailable).map((preset) => ({
     id: preset.id,
     group: preset.group,
     label: preset.label,
     hint: hintFor(preset.action),
     keywords: preset.keywords,
   })));
+  if (state.value?.opensApps) {
+    all.push(
+      { id: "open:app", group: "Open", label: "Open app…", keywords: "launch program application start run" },
+      { id: "open:url", group: "Open", label: "Open website…", keywords: "url link web browser address page" },
+      { id: "open:path", group: "Open", label: "Open file or folder…", keywords: "document directory path explorer finder" },
+    );
+  }
+  if (state.value?.runsShortcuts) {
+    for (const shortcut of shortcuts.value ?? [])
+      all.push({ id: `appleShortcut:${shortcut.id}`, group: "Shortcuts", label: shortcut.name, hint: "Shortcut", keywords: "shortcuts app automation run" });
+    if (modelValue.startsWith("appleShortcut:") && !all.some((c) => c.id === modelValue))
+      all.push({ id: modelValue, group: "Shortcuts", label: currentName ?? "Shortcut", hint: shortcuts.value ? "Not found" : "Shortcut" });
+    if (shortcuts.value && !shortcuts.value.length)
+      all.push({ id: "noShortcuts", group: "Shortcuts", label: "No Shortcuts yet", hint: "Make one in Shortcuts", keywords: "shortcuts" });
+  }
   for (const macro of state.value?.macros ?? [])
     all.push({ id: `macro:${macro.id}`, group: "Shared macros", label: macro.name, hint: "Shared", keywords: "macro saved sequence" });
   const group = "Layers & profiles";
@@ -160,6 +179,18 @@ const query = ref("");
 const open = ref(false);
 watch(open, (isOpen) => isOpen && (query.value = ""));
 
+// The Shortcuts app is read each time the menu opens, so one made a moment ago is there.
+const { call } = useAgent();
+const shortcuts = ref<ShortcutInfo[] | null>(null);
+watch(open, async (isOpen) => {
+  if (!isOpen || !state.value?.runsShortcuts) return;
+  try {
+    shortcuts.value = await call<ShortcutInfo[]>("listShortcuts");
+  } catch {
+    shortcuts.value ??= [];
+  }
+});
+
 const groups = computed(() => {
   const words = query.value.toLowerCase().split(/\s+/).filter(Boolean);
   const found = choices.value.filter((choice) => {
@@ -179,8 +210,9 @@ const current = computed(() => {
 let recordAfterClose = false;
 
 function pick(value: string) {
+  if (value === "noShortcuts") return;
   recordAfterClose = value === "shortcut" || value === "hold";
-  emit("update:modelValue", value);
+  emit("update:modelValue", value, choices.value.find((c) => c.id === value)?.label);
   open.value = false;
 }
 

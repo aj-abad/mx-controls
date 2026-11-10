@@ -6,8 +6,8 @@ using MxControls.Platform;
 namespace MxControls.Actions;
 
 /// <summary>
-/// Runs button bindings in two layers: each control bound in either is diverted, gesture controls with raw XY so the
-/// pointer stays still while they're held. Presses, releases and movement become actions. A press runs the binding
+/// Runs button bindings in two layers: each control bound in either is diverted, gesture and rose controls with raw XY
+/// so the pointer stays still while they're held. Presses, releases and movement become actions. A press runs the binding
 /// of the layer that was on when it went down, to its release. <see cref="UpdateAsync"/> changes the bindings,
 /// writing only the controls whose diversion changes. Disposing releases held keys and restores each control's
 /// original diversion. Callers serialize the async methods.
@@ -37,9 +37,28 @@ public sealed class ButtonEngine : IAsyncDisposable
     private HashSet<ushort> _held = [];
     private ushort? _gestureButton;
     private int _hapticSending;
+    private readonly RoseTracker _roseTracker = new();
+    private OpenRose? _rose;
+    // Made on the first rose, and kept so a timer firing late finds the rose it belongs to gone.
+    private Timer? _roseTimer;
     // Per control, made on its first click, and kept so a timer firing late still finds what it belongs to.
     private readonly Dictionary<ushort, Clicks> _clicks = [];
     private int _multiClickMs = ClickCounter.DefaultWindowMs;
+
+    /// <summary>
+    /// The rose open on a held control: the options of the layer that's on, which change with it, and the main
+    /// layer's under a second-layer rose that passes some through.
+    /// </summary>
+    private sealed class OpenRose(ushort cid, long pressedAt)
+    {
+        public ushort Cid { get; } = cid;
+        public long PressedAt { get; } = pressedAt;
+        public RoseMenu Own { get; set; } = null!;
+        public RoseMenu? Main { get; set; }
+        public RoseMenu Shown { get; set; } = null!;
+        public bool SecondLayer { get; set; }
+        public bool Visible { get; set; }
+    }
 
     private sealed class Clicks(ClickCounter counter, Timer timer)
     {
@@ -54,6 +73,18 @@ public sealed class ButtonEngine : IAsyncDisposable
     /// step), and whether it ran rather than just moved. A first direction with nothing beyond runs as it's reached.
     /// </summary>
     public event Action<ushort, IReadOnlyList<string>, bool>? GestureFired;
+
+    /// <summary>
+    /// A rose's highlight moved or an option ran: control ID, the option's index or null for the middle, and whether
+    /// it ran. Raised inside the engine's lock: don't block.
+    /// </summary>
+    public event Action<ushort, int?, bool>? RoseChanged;
+
+    /// <summary>
+    /// A control kept raw XY for a rose open across a layer change, and its binding now doesn't want it; write it
+    /// again with <see cref="SyncLayerAsync"/>. Raised inside the engine's lock: don't block.
+    /// </summary>
+    public event Action? DiversionStale;
 
     /// <summary>A click ran: control ID and 1, 2 or 3 for a single, double or triple click.</summary>
     public event Action<ushort, int>? ClickFired;
@@ -75,15 +106,24 @@ public sealed class ButtonEngine : IAsyncDisposable
 
     public event Action<Exception>? Failed;
 
-    /// <summary>Waveform played when a gesture direction fires, or null for none.</summary>
+    /// <summary>Waveform played when a gesture direction fires or a rose option is highlighted, or null for none.</summary>
     public HapticWaveform? GestureHaptic { get; set; } = HapticWaveform.SubtleCollision;
+
+    /// <summary>How long a rose button is held before the rose shows, unless the pointer leaves the middle first.</summary>
+    public const int RoseShowDelayMs = 140;
+
+    /// <summary>A rose press shorter than this that never left the middle is a click.</summary>
+    public const int RoseClickMs = 250;
 
     private ButtonEngine(MxDevice device, IPlatform platform, MacroLibrary? macros)
     {
         _device = device;
         _platform = platform;
         _runner = new ActionRunner(platform, _gate, macros, error => Failed?.Invoke(error));
+        _macros = macros;
     }
+
+    private readonly MacroLibrary? _macros;
 
     private static long Now => Stopwatch.GetTimestamp() * 1000 / Stopwatch.Frequency;
 
@@ -93,7 +133,7 @@ public sealed class ButtonEngine : IAsyncDisposable
         set
         {
             lock (_gate)
-                _tracker.Dpi = value;
+                _tracker.Dpi = _roseTracker.Dpi = value;
         }
     }
 
@@ -173,6 +213,8 @@ public sealed class ButtonEngine : IAsyncDisposable
                 _layers.Release(cid);
                 if (_gestureButton == cid)
                     _gestureButton = null;
+                if (_rose?.Cid == cid)
+                    CloseRose();
             }
             foreach (var cid in oldMain.Keys.Concat(oldSecond.Keys).Concat(_layers.Controls).Distinct())
             {
@@ -180,7 +222,9 @@ public sealed class ButtonEngine : IAsyncDisposable
                     DropClicks(cid);
             }
             if (_layers.Active != before)
-                LayerChanged?.Invoke(_layers.Active);
+                LayerSwitched();
+            else
+                RefreshRose();
         }
         await WriteAsync();
     }
@@ -217,6 +261,7 @@ public sealed class ButtonEngine : IAsyncDisposable
             _held = [];
             _pressed.Clear();
             _gestureButton = null;
+            CloseRose();
             if (_layers.ReleaseAll())
                 LayerChanged?.Invoke(_layers.Active);
         }
@@ -236,7 +281,8 @@ public sealed class ButtonEngine : IAsyncDisposable
     {
         Dictionary<ushort, bool> wanted;
         lock (_gate)
-            wanted = _layers.Controls.ToDictionary(cid => cid, cid => Effective(cid)?.IsGesture ?? false);
+            // A rose open across a layer change keeps its movement until it closes, whatever the new layer binds.
+            wanted = _layers.Controls.ToDictionary(cid => cid, cid => (Effective(cid)?.NeedsRawXY ?? false) || _rose?.Cid == cid);
 
         foreach (var cid in _diverted.Keys.Where(cid => !wanted.ContainsKey(cid)).ToArray())
         {
@@ -263,8 +309,13 @@ public sealed class ButtonEngine : IAsyncDisposable
             {
                 if (_device.Controls.ParseHeld(e) is { } held)
                     OnHeld(held);
-                else if (_device.Controls.ParseRawXY(e) is { } move && _gestureButton is { } button)
-                    OnMove(button, move.Dx, move.Dy);
+                else if (_device.Controls.ParseRawXY(e) is { } move)
+                {
+                    if (_rose is not null)
+                        OnRoseMove(move.Dx, move.Dy);
+                    if (_gestureButton is { } button)
+                        OnMove(button, move.Dx, move.Dy);
+                }
             }
             catch (Exception error)
             {
@@ -295,7 +346,11 @@ public sealed class ButtonEngine : IAsyncDisposable
                     InterruptClicks(cid);
             }
             _pressed[cid] = binding;
-            if (binding.IsGesture)
+            if (binding.IsRose)
+            {
+                OpenRoseOn(cid);
+            }
+            else if (binding.IsGesture)
             {
                 _gestureButton = cid;
                 _tracker.Reset(binding.Gesture!);
@@ -310,6 +365,13 @@ public sealed class ButtonEngine : IAsyncDisposable
         {
             if (!_pressed.Remove(cid, out var binding))
                 continue;
+            if (binding.IsRose)
+            {
+                if (_rose?.Cid == cid)
+                    ReleaseRose(binding);
+                End(cid);
+                continue;
+            }
             if (binding.IsGesture && _gestureButton == cid)
             {
                 // A path runs where it ends, as a tap; a step with no action is a junction, and backing out cancels.
@@ -346,7 +408,7 @@ public sealed class ButtonEngine : IAsyncDisposable
         if (action.HoldsLayer)
         {
             if (_layers.Hold(cid))
-                LayerChanged?.Invoke(true);
+                LayerSwitched();
         }
         else if (action.Type is ActionTypes.Layer or ActionTypes.Profile)
             RunOnce(action);
@@ -358,7 +420,7 @@ public sealed class ButtonEngine : IAsyncDisposable
     {
         _runner.End(cid);
         if (_layers.Release(cid))
-            LayerChanged?.Invoke(_layers.Active);
+            LayerSwitched();
     }
 
     /// <summary>Runs an action once, as a tap. Holding a layer for no time at all does nothing.</summary>
@@ -368,7 +430,7 @@ public sealed class ButtonEngine : IAsyncDisposable
         {
             case ActionTypes.Layer when action.Layer == LayerModes.Toggle:
                 if (_layers.Toggle())
-                    LayerChanged?.Invoke(_layers.Active);
+                    LayerSwitched();
                 break;
             case ActionTypes.Layer:
                 break;
@@ -491,6 +553,191 @@ public sealed class ButtonEngine : IAsyncDisposable
         GestureFired?.Invoke(cid, [Name(direction)], true);
     }
 
+    private void LayerSwitched()
+    {
+        LayerChanged?.Invoke(_layers.Active);
+        RefreshRose();
+    }
+
+    /// <summary>
+    /// The rose a control shows in the layer that's on: the second layer's over the main one's, or the main one's
+    /// where the second layer leaves the control alone or binds it to something else. Null where neither is a rose.
+    /// </summary>
+    private (RoseMenu Own, RoseMenu? Main, bool Second)? RoseFor(ushort cid)
+    {
+        var main = _layers.Main.GetValueOrDefault(cid) is { IsRose: true } m ? m.Rose : null;
+        if (_layers.Active && _layers.Second.GetValueOrDefault(cid) is { IsRose: true, Rose: { } second })
+            return (second, main, true);
+        return main is null ? null : (main, null, false);
+    }
+
+    private void OpenRoseOn(ushort cid)
+    {
+        if (_rose is not null)
+            CloseRose();
+        if (RoseFor(cid) is not { } menu)
+            return;
+        var rose = new OpenRose(cid, Now);
+        _rose = rose;
+        Choose(rose, menu);
+        _roseTracker.Reset(rose.Shown.Items.Count);
+        _roseTimer ??= new Timer(_ => OnRoseTimer());
+        _roseTimer.Change(RoseShowDelayMs, Timeout.Infinite);
+    }
+
+    private static void Choose(OpenRose rose, (RoseMenu Own, RoseMenu? Main, bool Second) menu)
+    {
+        rose.Own = menu.Own;
+        rose.Main = menu.Main;
+        rose.SecondLayer = menu.Second;
+        // A main-layer rose has nothing beneath it, so anything it passes through is empty.
+        rose.Shown = menu.Own.Over(menu.Main);
+    }
+
+    private void OnRoseTimer()
+    {
+        lock (_gate)
+        {
+            try
+            {
+                if (_rose is { Visible: false } rose && Now - rose.PressedAt >= RoseShowDelayMs - 5)
+                    ShowRose(rose);
+            }
+            catch (Exception error)
+            {
+                Failed?.Invoke(error);
+            }
+        }
+    }
+
+    private void OnRoseMove(int dx, int dy)
+    {
+        var rose = _rose!;
+        bool changed = _roseTracker.Add(dx, dy);
+        if (changed)
+        {
+            // The hand feels each option it reaches; an empty one and the middle are fainter.
+            if (GestureHaptic is { } reached)
+                Tap(_roseTracker.Selected is { } index && rose.Shown.Items[index].Action.IsSet ? reached : HapticWaveform.WhisperCollision);
+            RoseChanged?.Invoke(rose.Cid, _roseTracker.Selected, false);
+        }
+        if (rose.Visible || _roseTracker.LeftCenter)
+            ShowRose(rose);
+    }
+
+    /// <summary>The layer changed with a rose open: it shows the new layer's options, if it has a rose of its own.</summary>
+    private void RefreshRose()
+    {
+        if (_rose is not { } rose || RoseFor(rose.Cid) is not { } menu)
+            return;
+        if (menu.Own == rose.Own && menu.Main == rose.Main && menu.Second == rose.SecondLayer)
+            return;
+        var before = _roseTracker.Selected;
+        Choose(rose, menu);
+        _roseTracker.Count = rose.Shown.Items.Count;
+        if (GestureHaptic is not null)
+            Tap(HapticWaveform.DampStateChange);
+        if (_roseTracker.Selected != before)
+            RoseChanged?.Invoke(rose.Cid, _roseTracker.Selected, false);
+        if (rose.Visible)
+            ShowRose(rose);
+    }
+
+    private void ShowRose(OpenRose rose)
+    {
+        rose.Visible = true;
+        if (_platform.RoseOverlay is not { } overlay)
+            return;
+        var slots = rose.Shown.Items.Select((item, i) => new RoseSlot(
+            Label(item), item.IconPath, !item.Action.IsSet, rose.SecondLayer && rose.Own.Items[i].PassThrough)).ToArray();
+        overlay.Show(new RoseView(slots, _roseTracker.Selected, _roseTracker.X, _roseTracker.Y, RoseTracker.CenterRatio, rose.SecondLayer));
+    }
+
+    /// <summary>The rose's button came up: runs the highlighted option, or the quick press, or nothing from the middle.</summary>
+    private void ReleaseRose(ButtonBinding binding)
+    {
+        var rose = _rose!;
+        var selected = _roseTracker.Selected;
+        bool click = selected is null && !_roseTracker.LeftCenter && Now - rose.PressedAt < RoseClickMs;
+        var action = selected is { } index ? rose.Shown.Items[index].Action : null;
+        CloseRose();
+        if (action is { IsSet: true })
+        {
+            RunOnce(action);
+            RoseChanged?.Invoke(rose.Cid, selected, true);
+        }
+        else if (click && binding.Clicks.Single.IsSet)
+            Click(rose.Cid, binding);
+    }
+
+    private void CloseRose()
+    {
+        if (_rose is not { } rose)
+            return;
+        _rose = null;
+        _roseTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+        if (rose.Visible)
+            _platform.RoseOverlay?.Hide();
+        // _diverted belongs to the writer, outside the lock; a sync with nothing to change writes nothing.
+        if (!(Effective(rose.Cid)?.NeedsRawXY ?? false))
+            DiversionStale?.Invoke();
+    }
+
+    /// <summary>What a rose option says: its label, or a short name for its action.</summary>
+    private string Label(RoseItem item)
+    {
+        if (!string.IsNullOrWhiteSpace(item.Label))
+            return item.Label.Trim();
+        var action = item.Action;
+        return action.Type switch
+        {
+            ActionTypes.None => "",
+            ActionTypes.Press or ActionTypes.Hold => string.Join("+", action.Keys?.Select(KeyLabel) ?? []),
+            ActionTypes.Macro => _macros?.Find(action.Macro ?? "")?.Name ?? "Macro",
+            ActionTypes.System => action.System switch
+            {
+                SystemActions.TaskView => OperatingSystem.IsMacOS() ? "Mission Control" : "Task View",
+                SystemActions.ShowDesktop => "Desktop",
+                SystemActions.ZoomIn => "Zoom in",
+                SystemActions.ZoomOut => "Zoom out",
+                { } name => Words(name),
+                _ => "System",
+            },
+            ActionTypes.Open or ActionTypes.AppleShortcut when !string.IsNullOrWhiteSpace(action.Name) => action.Name,
+            ActionTypes.Open => Path.GetFileName(action.Open?.TrimEnd('/', '\\')) is { Length: > 0 } file ? file : "Open",
+            ActionTypes.AppleShortcut => "Shortcut",
+            ActionTypes.Click => action.Mouse switch
+            {
+                MouseButtons.Back => "Back",
+                MouseButtons.Forward => "Forward",
+                _ => "Middle click",
+            },
+            ActionTypes.Layer => "Layer 2",
+            ActionTypes.Profile => "Profile",
+            _ => action.Type,
+        };
+    }
+
+    /// <summary>"lockScreen" as "Lock screen".</summary>
+    private static string Words(string name)
+    {
+        var text = new System.Text.StringBuilder(name.Length + 4);
+        foreach (char c in name)
+            text.Append(text.Length == 0 ? char.ToUpperInvariant(c) : char.IsUpper(c) ? $" {char.ToLowerInvariant(c)}" : c);
+        return text.ToString();
+    }
+
+    private static string KeyLabel(string code) => code switch
+    {
+        "ControlLeft" or "ControlRight" => "Ctrl",
+        "ShiftLeft" or "ShiftRight" => "Shift",
+        "AltLeft" or "AltRight" => "Alt",
+        "MetaLeft" or "MetaRight" => OperatingSystem.IsMacOS() ? "Cmd" : "Win",
+        _ when code.StartsWith("Key", StringComparison.Ordinal) && code.Length == 4 => code[3..],
+        _ when code.StartsWith("Digit", StringComparison.Ordinal) => code[5..],
+        _ => code,
+    };
+
     /// <summary>
     /// Plays a haptic tap. It goes out before the action so it lands with it rather than after. Repeats and steps
     /// can come faster than the radio carries taps, so one is skipped while the last is still going out.
@@ -519,6 +766,8 @@ public sealed class ButtonEngine : IAsyncDisposable
             _held.Clear();
             _pressed.Clear();
             _gestureButton = null;
+            CloseRose();
+            _roseTimer?.Dispose();
             foreach (var clicks in _clicks.Values)
                 clicks.Timer.Dispose();
             _clicks.Clear();

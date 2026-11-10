@@ -25,6 +25,11 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
     private static readonly TimeSpan KeyCaptureTimeout = TimeSpan.FromSeconds(15);
 
     private readonly RequestQueue _queue = new();
+    private const int MaxIconsPerCall = 64;
+    private static readonly TimeSpan IconRetry = TimeSpan.FromMinutes(1);
+    // Programs whose icon couldn't be found lately, so asking again doesn't search the disk each time.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _iconMisses = new();
+    private readonly string[] _systemActions = [.. SystemActions.All.Where(platform.SupportsSystem)];
     private AgentSettings _settings = store.Load();
     private MxDevice? _device;
     private ButtonEngine? _engine;
@@ -71,7 +76,7 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
                 settings.StartAtLogin, _optionsPlus, _error, Interlocked.Read(ref _revision), settings.MultiClickMs,
                 settings.AllPresets, PresetLibrary.BuiltIn, PresetUses(settings), settings.Macros ?? [], MacroUses(settings),
                 settings.Active.Id, _engine?.LayerActive ?? false, platform.Programs is not null, AgentBuild.Hash,
-                settings.HostShortcuts ?? []);
+                settings.HostShortcuts ?? [], _systemActions, platform.Apps is not null, platform.Shortcuts is not null);
         }
     }
 
@@ -273,6 +278,8 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
             new GestureEvent(ButtonId(cid), path.Count > 0 ? path[^1] : null, path, ran ? "fire" : "step"));
         engine.ClickFired += (cid, count) => Published?.Invoke("click", new ClickEvent(ButtonId(cid), count));
         engine.LayerChanged += active => OnLayerChanged(engine, active);
+        engine.RoseChanged += (cid, option, ran) => Published?.Invoke("rose", new RoseEvent(ButtonId(cid), option, ran));
+        engine.DiversionStale += () => OnLayerChanged(engine, engine.LayerActive);
         engine.ProfileRequested += OnProfileRequested;
         engine.NativePressed += cid => OnNativePressed(engine, cid);
         engine.MultiClickMs = _settings.MultiClickMs;
@@ -643,6 +650,14 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
                 break;
             case "listPrograms":
                 return (platform.Programs?.Running() ?? []).ToArray();
+            // Off the request loop: listing can take a second, and other requests shouldn't wait for it.
+            case "listApps":
+                return await Task.Run(() => (platform.Apps?.Installed() ?? []).ToArray());
+            case "listShortcuts":
+                return await Task.Run(() => (platform.Shortcuts?.List() ?? []).ToArray());
+            case "getProgramIcons":
+                var iconIds = args.GetProperty("ids").Deserialize(AgentJson.Default.StringArray) ?? [];
+                return await Task.Run(() => ProgramIcons(iconIds.Take(MaxIconsPerCall)));
             case "setProfilePrograms":
                 var bound = ProfileArg(args).Id;
                 var programs = ProgramsArg(args);
@@ -738,6 +753,44 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
     private MxDevice Device() => _device ?? throw new InvalidOperationException("The mouse isn't connected.");
 
     /// <summary>
+    /// Each program's icon as a PNG data URL, or null where none was found. Icons are kept in the settings folder,
+    /// so a program's icon still shows after it's uninstalled or while the agent can't see where it lives.
+    /// </summary>
+    private Dictionary<string, string?> ProgramIcons(IEnumerable<string> ids)
+    {
+        var folder = Path.Combine(store.Folder, "Icons");
+        var icons = new Dictionary<string, string?>();
+        foreach (var id in ids.Where(i => !string.IsNullOrWhiteSpace(i)).Select(i => i.ToLowerInvariant()).Distinct())
+        {
+            var file = Path.Combine(folder, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(id)))[..24] + ".png");
+            byte[]? png = null;
+            try
+            {
+                if (File.Exists(file))
+                    png = File.ReadAllBytes(file);
+                else if (!(_iconMisses.TryGetValue(id, out var missed) && DateTime.UtcNow - missed < IconRetry))
+                {
+                    png = platform.Programs?.Icon(id);
+                    if (png is null)
+                        _iconMisses[id] = DateTime.UtcNow;
+                    else
+                    {
+                        Directory.CreateDirectory(folder);
+                        File.WriteAllBytes(file, png);
+                    }
+                }
+            }
+            catch (Exception error)
+            {
+                Log.Write($"Reading the icon of {id} failed: {error.Message}");
+                _iconMisses[id] = DateTime.UtcNow;
+            }
+            icons[id] = png is null ? null : "data:image/png;base64," + Convert.ToBase64String(png);
+        }
+        return icons;
+    }
+
+    /// <summary>
     /// The work for a request that changes one setting. A device write rereads only what it changed and keeps the
     /// rest of what's known, so it comes back in a few calls.
     /// </summary>
@@ -755,6 +808,8 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
                         throw new ArgumentException($"{binding.Button}: that gesture preset was deleted.");
                     CheckMacros(binding.AllActions);
                     CheckProfileActions(binding.AllActions);
+                    if (binding.Rose is { PassesThrough: true } && !EditsLayer(args))
+                        throw new ArgumentException($"{binding.Button}: only the second layer's rose can pass options through to the main layer.");
                 }
                 var distinct = bindings.DistinctBy(b => b.Button.ToLowerInvariant()).ToArray();
                 var bindingsFor = EditedProfile(args);

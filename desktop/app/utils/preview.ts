@@ -1,5 +1,7 @@
 import type {
   AgentState,
+  AppInfo,
+  ShortcutInfo,
   ButtonAction,
   ButtonBinding,
   GesturePreset,
@@ -13,6 +15,7 @@ import type {
 
 const step = (id: string, more: Partial<GestureStep> = {}): GestureStep => ({ ...(presetById(id)!.action as ButtonAction), ...more });
 const NONE: GestureStep = { type: "none" };
+const IS_MAC = navigator.userAgent.includes("Mac");
 
 /** Build lazily: actions describe macros through useAgent, which also imports this preview. */
 const builtInPresets = (): GesturePreset[] => [
@@ -49,6 +52,35 @@ const profile = (id: string, name: string, icon: string | null, more: Partial<Pr
   layer: { bindings: [], thumbWheel: null },
   ...more,
 });
+
+/** The apps the preview pretends are installed. */
+export const previewApps = (): AppInfo[] => [
+  { id: "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App", name: "Calculator" },
+  { id: "Chrome", name: "Google Chrome" },
+  { id: "Microsoft.WindowsNotepad_8wekyb3d8bbwe!App", name: "Notepad" },
+  { id: "C:\\Users\\Me\\AppData\\Roaming\\Spotify\\Spotify.exe", name: "Spotify" },
+  { id: "Microsoft.VisualStudioCode", name: "Visual Studio Code" },
+];
+
+/** The Shortcuts the preview pretends the Shortcuts app has. */
+export const previewShortcuts = (): ShortcutInfo[] => [
+  { id: "6A1F0C2E-0000-4000-8000-000000000001", name: "Start focus timer" },
+  { id: "6A1F0C2E-0000-4000-8000-000000000002", name: "Resize image" },
+  { id: "6A1F0C2E-0000-4000-8000-000000000003", name: "Text last image to me" },
+];
+
+/** Stand-ins for programs' icons: a coloured tile with the program's initial, as the agent can't be asked. */
+export function previewProgramIcons(ids: string[]): Record<string, string | null> {
+  const colours = ["#4285f4", "#1db954", "#e34f26", "#7c3aed", "#f59e0b", "#0ea5e9"];
+  return Object.fromEntries(
+    ids.map((id, i) => {
+      const letter = (id.replace(/^.*[\/]/, "")[0] ?? "?").toUpperCase();
+      const colour = colours[[...id].reduce((sum, c) => sum + c.charCodeAt(0), i) % colours.length];
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><rect width="48" height="48" rx="11" fill="${colour}"/><text x="24" y="32" font-family="sans-serif" font-size="24" font-weight="700" fill="white" text-anchor="middle">${letter}</text></svg>`;
+      return [id, `data:image/svg+xml,${encodeURIComponent(svg)}`];
+    }),
+  );
+}
 
 /** The programs the preview pretends are open. */
 export const previewPrograms = (): ProgramInfo[] => [
@@ -171,6 +203,14 @@ export function previewState(): AgentState {
     selectedProfile: "default",
     layerActive: false,
     followsPrograms: true,
+    systemActions: IS_MAC
+      ? ["taskView", "appExpose", "showDesktop", "launchpad", "switchApps", "zoomIn", "zoomOut", "search", "screenshot", "emoji",
+        "lockScreen", "fileManager", "settings", "calculator", "minimizeWindow", "fullScreen", "closeWindow", "quitApp",
+        "brightnessUp", "brightnessDown", "lookUp"]
+      : ["taskView", "showDesktop", "switchApps", "zoomIn", "zoomOut", "search", "screenshot", "emoji", "dictation", "notifications",
+        "lockScreen", "fileManager", "settings", "calculator", "minimizeWindow", "maximizeWindow", "fullScreen", "closeWindow", "micMute"],
+    opensApps: true,
+    runsShortcuts: IS_MAC,
     device: {
       name: "MX Master 4 for Mac",
       productId: "B042",

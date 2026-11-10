@@ -8,7 +8,8 @@ namespace MxControls.Actions;
 /// <c>hold</c> keeps <see cref="Keys"/> down for as long as the button is held, <c>press</c> taps them,
 /// <c>system</c> runs <see cref="System"/>, <c>click</c> holds the mouse button <see cref="Mouse"/>,
 /// <c>macro</c> runs the <see cref="Actions.Macro"/> called <see cref="Macro"/>, <c>layer</c> turns on the profile's
-/// second layer as <see cref="Layer"/> says, <c>profile</c> switches to the profile <see cref="Profile"/>, and
+/// second layer as <see cref="Layer"/> says, <c>profile</c> switches to the profile <see cref="Profile"/>,
+/// <c>open</c> opens <see cref="Open"/>, <c>appleShortcut</c> runs the macOS Shortcut <see cref="Shortcut"/>, and
 /// <c>none</c> does nothing.
 /// </summary>
 /// <param name="Keys"><c>KeyboardEvent.code</c> names in press order, modifiers first.</param>
@@ -21,9 +22,15 @@ namespace MxControls.Actions;
 /// <param name="Macro">For <c>macro</c>: the macro's ID.</param>
 /// <param name="Layer">For <c>layer</c>: one of <see cref="LayerModes"/>.</param>
 /// <param name="Profile">For <c>profile</c>: the ID of a profile with no programs of its own.</param>
+/// <param name="Open">
+/// For <c>open</c>: a web address, a file or folder path, or <c>app:</c> and an app's ID from the list of apps.
+/// </param>
+/// <param name="Shortcut">For <c>appleShortcut</c>: the Shortcut's identifier, which survives renaming it.</param>
+/// <param name="Name">For an app or a Shortcut: its name when it was chosen, to show without looking it up.</param>
 public sealed record ButtonAction(
     string Type, IReadOnlyList<string>? Keys = null, string? System = null, bool Repeat = false, string? Mouse = null,
-    string? Macro = null, string? Layer = null, string? Profile = null)
+    string? Macro = null, string? Layer = null, string? Profile = null, string? Open = null, string? Shortcut = null,
+    string? Name = null)
 {
     public static readonly ButtonAction Nothing = new(ActionTypes.None);
 
@@ -39,6 +46,11 @@ public sealed record ButtonAction(
         ActionTypes.None => null,
         ActionTypes.Macro => string.IsNullOrEmpty(Macro) ? "A macro action needs a macro." : null,
         ActionTypes.Layer or ActionTypes.Profile when Repeat => "Switching layers or profiles can't repeat.",
+        ActionTypes.Open or ActionTypes.AppleShortcut when Repeat => "Opening something or running a Shortcut can't repeat.",
+        ActionTypes.Open when platform.Apps is null => "This platform can't open apps or files.",
+        ActionTypes.Open => OpenTarget.Problem(Open),
+        ActionTypes.AppleShortcut when platform.Shortcuts is null => "Shortcuts run only on a Mac.",
+        ActionTypes.AppleShortcut => string.IsNullOrWhiteSpace(Shortcut) ? "A Shortcuts action needs a Shortcut." : null,
         ActionTypes.Layer => Layer is LayerModes.Momentary or LayerModes.Toggle ? null : $"Unknown layer mode '{Layer}'.",
         ActionTypes.Profile => string.IsNullOrEmpty(Profile) ? "A profile action needs a profile." : null,
         ActionTypes.Hold or ActionTypes.Press when Keys is not { Count: > 0 } => "A key action needs at least one key.",
@@ -61,6 +73,40 @@ public static class ActionTypes
     public const string Macro = "macro";
     public const string Layer = "layer";
     public const string Profile = "profile";
+    public const string Open = "open";
+    public const string AppleShortcut = "appleShortcut";
+}
+
+/// <summary>
+/// What an <c>open</c> action's target is: an app, by <see cref="AppPrefix"/> and the ID the platform listed it
+/// under; a web address or other link, by its scheme; or else a file or folder path.
+/// </summary>
+public static class OpenTarget
+{
+    public const string AppPrefix = "app:";
+    public const int MaxLength = 2048;
+
+    public static bool IsApp(string target) => target.StartsWith(AppPrefix, StringComparison.Ordinal);
+
+    /// <summary>A link with a scheme of two letters or more, so a Windows drive such as <c>C:</c> stays a path.</summary>
+    public static bool IsLink(string target)
+    {
+        int colon = target.IndexOf(':');
+        return colon >= 2 && char.IsAsciiLetter(target[0])
+            && target[..colon].All(c => char.IsAsciiLetterOrDigit(c) || c is '+' or '-' or '.')
+            && !IsApp(target);
+    }
+
+    public static string? Problem(string? target)
+    {
+        if (string.IsNullOrWhiteSpace(target) || target == AppPrefix)
+            return "An open action needs something to open.";
+        if (target.Length > MaxLength)
+            return $"What an open action opens is at most {MaxLength} characters.";
+        if (IsLink(target) && target.EndsWith("://", StringComparison.Ordinal))
+            return "An open action needs a whole web address.";
+        return null;
+    }
 }
 
 /// <summary>
@@ -81,13 +127,44 @@ public static class MouseButtons
     public const string Forward = "forward";
 }
 
-/// <summary>Names for <see cref="ButtonAction.System"/>.</summary>
+/// <summary>
+/// Names for <see cref="ButtonAction.System"/>: things each system does its own way, which a platform runs if it
+/// has them. Task View is Mission Control on a Mac.
+/// </summary>
 public static class SystemActions
 {
     public const string TaskView = "taskView";
+    public const string AppExpose = "appExpose";
     public const string ShowDesktop = "showDesktop";
+    public const string Launchpad = "launchpad";
+    public const string SwitchApps = "switchApps";
     public const string ZoomIn = "zoomIn";
     public const string ZoomOut = "zoomOut";
+    public const string Search = "search";
+    public const string Screenshot = "screenshot";
+    public const string Emoji = "emoji";
+    public const string Dictation = "dictation";
+    public const string Notifications = "notifications";
+    public const string LockScreen = "lockScreen";
+    public const string FileManager = "fileManager";
+    public const string Settings = "settings";
+    public const string Calculator = "calculator";
+    public const string MinimizeWindow = "minimizeWindow";
+    public const string MaximizeWindow = "maximizeWindow";
+    public const string FullScreen = "fullScreen";
+    public const string CloseWindow = "closeWindow";
+    public const string QuitApp = "quitApp";
+    public const string MicMute = "micMute";
+    public const string BrightnessUp = "brightnessUp";
+    public const string BrightnessDown = "brightnessDown";
+    public const string LookUp = "lookUp";
+
+    public static readonly string[] All =
+    [
+        TaskView, AppExpose, ShowDesktop, Launchpad, SwitchApps, ZoomIn, ZoomOut, Search, Screenshot, Emoji, Dictation,
+        Notifications, LockScreen, FileManager, Settings, Calculator, MinimizeWindow, MaximizeWindow, FullScreen,
+        CloseWindow, QuitApp, MicMute, BrightnessUp, BrightnessDown, LookUp,
+    ];
 }
 
 /// <summary>
@@ -169,7 +246,7 @@ public sealed record GestureActions(
 public sealed record GestureStep(
     string Type, IReadOnlyList<string>? Keys = null, string? System = null, bool Repeat = false, string? Mouse = null,
     string? Macro = null, GestureStep? Up = null, GestureStep? Down = null, GestureStep? Left = null, GestureStep? Right = null,
-    string? Layer = null, string? Profile = null)
+    string? Layer = null, string? Profile = null, string? Open = null, string? Shortcut = null, string? Name = null)
 {
     public static readonly GestureStep Nothing = new(ActionTypes.None);
 
@@ -177,7 +254,7 @@ public sealed record GestureStep(
         [GestureDirection.Up, GestureDirection.Down, GestureDirection.Left, GestureDirection.Right];
 
     [JsonIgnore]
-    public ButtonAction Action => new(Type, Keys, System, Repeat, Mouse, Macro, Layer, Profile);
+    public ButtonAction Action => new(Type, Keys, System, Repeat, Mouse, Macro, Layer, Profile, Open, Shortcut, Name);
 
     /// <summary>Every step: this one, then the ones beyond it.</summary>
     [JsonIgnore]
@@ -188,7 +265,8 @@ public sealed record GestureStep(
     {
         var action = change(Action);
         return new(action.Type, action.Keys, action.System, action.Repeat, action.Mouse, action.Macro,
-            Up?.Map(change), Down?.Map(change), Left?.Map(change), Right?.Map(change), action.Layer, action.Profile);
+            Up?.Map(change), Down?.Map(change), Left?.Map(change), Right?.Map(change), action.Layer, action.Profile,
+            action.Open, action.Shortcut, action.Name);
     }
 
     [JsonIgnore]
@@ -206,7 +284,8 @@ public sealed record GestureStep(
     public bool Branches(GestureDirection came) => Across(came).Any(d => this[d] is not null);
 
     public static GestureStep Of(ButtonAction action) =>
-        new(action.Type, action.Keys, action.System, action.Repeat, action.Mouse, action.Macro, Layer: action.Layer, Profile: action.Profile);
+        new(action.Type, action.Keys, action.System, action.Repeat, action.Mouse, action.Macro, Layer: action.Layer, Profile: action.Profile,
+            Open: action.Open, Shortcut: action.Shortcut, Name: action.Name);
 
     public static GestureDirection Opposite(GestureDirection direction) => direction switch
     {
@@ -264,31 +343,43 @@ public sealed record ClickActions(ButtonAction Single, ButtonAction? Double, But
 }
 
 /// <summary>
-/// What one button does: a single <see cref="Action"/>, or a gesture. A gesture follows a <see cref="Preset"/>, with
+/// What one button does: a single <see cref="Action"/>, a gesture, or a <see cref="RoseMenu"/>. A gesture follows a <see cref="Preset"/>, with
 /// <see cref="Action"/> and the double and triple clicks as its clicks; <see cref="Resolve"/> fills in
 /// <see cref="Gesture"/> from the preset before the engine runs it. Settings from before presets carry the
 /// <see cref="Gesture"/> itself, clicks included, until they're migrated.
 /// </summary>
 /// <param name="Button">A button ID such as "gesture"; see <see cref="Features.ReprogControls.KnownButtons"/>.</param>
-/// <param name="Mode"><c>action</c> or <c>gesture</c>.</param>
+/// <param name="Mode"><c>action</c>, <c>gesture</c> or <c>rose</c>.</param>
 /// <param name="DoubleClick">What two quick clicks run, or null. A gesture carried whole keeps its own.</param>
 /// <param name="TripleClick">What three quick clicks run, or null.</param>
 /// <param name="Preset">For <c>gesture</c>: the ID of the <see cref="GesturePreset"/> it follows.</param>
+/// <param name="Rose">
+/// For <c>rose</c>: the options shown while it's held. <see cref="Action"/> is then what a quick press that
+/// never leaves the middle runs, if anything.
+/// </param>
 public sealed record ButtonBinding(
     string Button, string Mode, ButtonAction? Action = null, GestureActions? Gesture = null,
-    ButtonAction? DoubleClick = null, ButtonAction? TripleClick = null, string? Preset = null)
+    ButtonAction? DoubleClick = null, ButtonAction? TripleClick = null, string? Preset = null, RoseMenu? Rose = null)
 {
     public const string ActionMode = "action";
     public const string GestureMode = "gesture";
+    public const string RoseMode = "rose";
 
     [JsonIgnore]
     public bool IsGesture => Mode == GestureMode;
+
+    [JsonIgnore]
+    public bool IsRose => Mode == RoseMode;
+
+    /// <summary>Whether its control reports movement instead of moving the pointer while held.</summary>
+    [JsonIgnore]
+    public bool NeedsRawXY => IsGesture || IsRose;
 
     /// <summary>The click actions of whichever mode this is; only call it on a binding without a problem.</summary>
     [JsonIgnore]
     public ClickActions Clicks => IsGesture && Gesture is { } gesture
         ? new(gesture.Click, gesture.DoubleClick, gesture.TripleClick)
-        : new(Action!, DoubleClick, TripleClick);
+        : IsRose ? new(Action ?? ButtonAction.Nothing, null, null) : new(Action!, DoubleClick, TripleClick);
 
     public string? Problem(IPlatform platform)
     {
@@ -303,6 +394,11 @@ public sealed record ButtonBinding(
             GestureMode when Preset is null => "A gesture binding needs a preset or its five actions.",
             GestureMode when Action is null => "A gesture binding needs an action for its click.",
             GestureMode => Action.Problem(platform) ?? Clicks.Problem(platform) ?? ClickHoldsLayer(Action),
+            RoseMode when Rose is null => "A rose binding needs its options.",
+            RoseMode when DoubleClick is not null || TripleClick is not null => "A rose's quick press runs alone, without double or triple clicks.",
+            RoseMode when Action is { Type: ActionTypes.Hold } or { Repeat: true } or { HoldsLayer: true } =>
+                "A rose's quick press runs when you let go, so it can't hold keys or a layer, or repeat.",
+            RoseMode => Action?.Problem(platform) ?? Rose.Problem(platform),
             _ => $"Unknown mode '{Mode}'.",
         };
     }
@@ -316,7 +412,7 @@ public sealed record ButtonBinding(
         new[] { Action, DoubleClick, TripleClick }.OfType<ButtonAction>().Concat(Gesture is { } g
             ? [g.Click, .. new[] { g.DoubleClick, g.TripleClick }.OfType<ButtonAction>(),
                 .. new[] { g.Up, g.Down, g.Left, g.Right }.SelectMany(s => s.All).Select(s => s.Action)]
-            : []);
+            : []).Concat(Rose?.Items.Where(i => !i.PassThrough).Select(i => i.Action) ?? []);
 
     /// <summary>
     /// This binding as the engine runs it: a gesture with its preset's moves filled in. One whose preset has gone

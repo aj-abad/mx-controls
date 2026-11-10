@@ -189,8 +189,13 @@ export function countsText(preset: GesturePreset) {
   return parts.filter(Boolean).join(" · ") || "No moves";
 }
 
-/** Whether the agent would take the action: a shortcut or held keys need a combination. */
-export const complete = (action: ButtonAction) => (action.type === "press" || action.type === "hold" ? !!action.keys?.length : true);
+/** Whether the agent would take the action: keys need a combination, opening needs a target, a Shortcut a choice. */
+export const complete = (action: ButtonAction) => {
+  if (action.type === "press" || action.type === "hold") return !!action.keys?.length;
+  if (action.type === "open") return openComplete(action.open);
+  if (action.type === "appleShortcut") return !!action.shortcut;
+  return true;
+};
 
 // The agent sends back nulls and `repeat: false` that the editors leave out, so compare without them.
 export const canonical = (value: unknown) =>

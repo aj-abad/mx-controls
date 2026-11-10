@@ -32,6 +32,9 @@ internal sealed class ActionRunner(IPlatform platform, object gate, MacroLibrary
             case ActionTypes.Press or ActionTypes.System or ActionTypes.Macro:
                 Run(action);
                 break;
+            case ActionTypes.Open or ActionTypes.AppleShortcut:
+                Run(action);
+                return;
             default:
                 return;
         }
@@ -87,8 +90,21 @@ internal sealed class ActionRunner(IPlatform platform, object gate, MacroLibrary
                 platform.Input.MouseDown(action.Mouse!);
                 platform.Input.MouseUp(action.Mouse!);
                 break;
+            // Starting a process takes long enough to hold up the mouse's next event, so it goes off to the side.
+            case ActionTypes.Open when platform.Apps is { } apps:
+                OffThread(() => apps.Open(action.Open!));
+                break;
+            case ActionTypes.AppleShortcut when platform.Shortcuts is { } shortcuts:
+                OffThread(() => shortcuts.Run(action.Shortcut!));
+                break;
         }
     }
+
+    private void OffThread(Action work) => _ = Task.Run(() =>
+    {
+        try { work(); }
+        catch (Exception error) { failed?.Invoke(error); }
+    });
 
     private void Repeat(ushort cid, ButtonAction action)
     {

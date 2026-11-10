@@ -209,7 +209,7 @@ import type { LayerId } from "~/composables/useProfileView";
 import type { ControlId } from "~/utils/controlMap";
 import type { MenuEntry } from "~/utils/menu";
 
-const { state, device, lastGesture, lastClick, lastPress, attempt } = useAgent();
+const { state, device, lastGesture, lastClick, lastRose, lastPress, attempt } = useAgent();
 
 const view = useProfileView();
 const { layer, second, bindings, mainBindings } = view;
@@ -397,6 +397,7 @@ function describe(button: ButtonState) {
   if (binding) {
     const double = hasAction(binding.doubleClick) ? binding.doubleClick : null;
     const triple = hasAction(binding.tripleClick) ? binding.tripleClick : null;
+    if (binding.mode === "rose") return `Rose menu · ${binding.rose?.items.length ?? 0} options`;
     const gesture = binding.mode === "gesture" ? (presets.find(binding.preset)?.name ?? "Gestures") : null;
     const clicks = triple ? ["2×", "3×"] : double ? [gesture ? "2×" : `2× ${describeAction(double)}`] : [];
     const click = binding.action ?? binding.gesture?.click ?? NOTHING;
@@ -482,6 +483,13 @@ function flash(buttonId: string | null, label: string) {
 watch(lastGesture, (gesture) => {
   if (!gesture || gesture.phase !== "fire" || !gesture.direction) return;
   flash(gesture.button, gesture.path.length > 1 ? pathText(gesture.path) : DIRECTION_LABELS[gesture.direction]!);
+});
+// Names the rose option that just ran; a pass-through one is named as the main layer has it.
+watch(lastRose, (event) => {
+  if (!event?.ran || event.option === null) return;
+  const own = bindingFor(event.button ?? "")?.rose?.items[event.option];
+  const item = own?.passThrough ? mainBindingFor(event.button ?? "")?.rose?.items[event.option] : own;
+  flash(event.button, item ? item.label || describeAction(item.action) : `Option ${event.option + 1}`);
 });
 // A plain button's single click is just a press, which would flash on every use.
 watch(lastClick, (click) => {

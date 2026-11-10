@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 
@@ -21,6 +22,16 @@ public sealed partial class MacPrograms : IPrograms
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
 
     private static readonly nint Library = NativeLibrary.Load(Graphics);
+
+    // Each program's app bundle as last seen running, so its icon can be found after it quits.
+    private static readonly ConcurrentDictionary<string, string> s_bundles = new();
+
+    private static readonly string[] AppFolders =
+    [
+        "/Applications", "/Applications/Utilities", "/System/Applications", "/System/Applications/Utilities",
+        "/System/Library/CoreServices",
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Applications"),
+    ];
     private static readonly nint LayerKey = Cf.Constant(Library, "kCGWindowLayer");
     private static readonly nint OwnerKey = Cf.Constant(Library, "kCGWindowOwnerPID");
     private static readonly nint AlphaKey = Cf.Constant(Library, "kCGWindowAlpha");
@@ -45,9 +56,33 @@ public sealed partial class MacPrograms : IPrograms
             if (path.StartsWith(SystemServices, StringComparison.Ordinal) && !path.EndsWith(Finder, StringComparison.Ordinal))
                 continue;
             var id = Path.GetFileName(path).ToLowerInvariant();
+            s_bundles[id] = path[..(bundle + 4)];
             seen.TryAdd(id, new ProgramInfo(id, Path.GetFileName(path[..bundle])));
         }
         return [.. seen.Values.OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase)];
+    }
+
+    public byte[]? Icon(string id) => BundleOf(id) is { } bundle ? MacIcons.Extract(bundle) : null;
+
+    /// <summary>
+    /// The app bundle a program runs from: where it was seen running, or the bundle in an applications folder whose
+    /// executable has its name.
+    /// </summary>
+    private static string? BundleOf(string id)
+    {
+        if (s_bundles.TryGetValue(id, out var seen) && Directory.Exists(seen))
+            return seen;
+        foreach (var folder in AppFolders.Where(Directory.Exists))
+        {
+            foreach (var bundle in Directory.EnumerateDirectories(folder, "*.app"))
+            {
+                var executables = Path.Combine(bundle, "Contents", "MacOS");
+                if (Directory.Exists(executables)
+                    && Directory.EnumerateFiles(executables).Any(file => Path.GetFileName(file).Equals(id, StringComparison.OrdinalIgnoreCase)))
+                    return s_bundles[id] = bundle;
+            }
+        }
+        return null;
     }
 
     // The window list runs front to back, so the frontmost normal window's owner is the program in front.

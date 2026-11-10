@@ -47,6 +47,8 @@ public sealed unsafe partial class MacInput : IInputInjector
     {
         ["AudioVolumeUp"] = 0, ["AudioVolumeDown"] = 1, ["AudioVolumeMute"] = 7,
         ["MediaPlayPause"] = 16, ["MediaTrackNext"] = 17, ["MediaTrackPrevious"] = 18,
+        // Not KeyboardEvent codes, which have none for brightness; only the brightness system actions send these.
+        ["BrightnessUp"] = 2, ["BrightnessDown"] = 3,
     };
 
     // Each modifier's generic flag with the bit that says which side, as real keyboards send them.

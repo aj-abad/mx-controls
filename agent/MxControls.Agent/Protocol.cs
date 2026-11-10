@@ -30,13 +30,16 @@ public static class Protocol
 /// <param name="FollowsPrograms">Whether this platform can tell which program is in front, so profiles can follow programs.</param>
 /// <param name="AgentHash">The SHA-256 of the running agent's executable, so an app can tell an agent from another build.</param>
 /// <param name="HostShortcuts">Keys that send the mouse to an Easy-Switch channel.</param>
+/// <param name="SystemActions">The named system actions this platform runs, from <see cref="Actions.SystemActions.All"/>.</param>
+/// <param name="OpensApps">Whether <c>open</c> actions work here.</param>
+/// <param name="RunsShortcuts">Whether there's a Shortcuts app to run, which is only on a Mac.</param>
 public sealed record AgentState(
     bool Connected, DeviceState? Device, IReadOnlyList<ButtonBinding> Bindings, ThumbWheelSettings ThumbWheel,
     IReadOnlyList<ProfileSummary> Profiles, string ActiveProfile, bool StartAtLogin, bool OptionsPlusRunning, string? Error,
     long Revision, int MultiClickMs, IReadOnlyList<GesturePreset> GesturePresets, IReadOnlyList<GesturePreset> BuiltInPresets,
     IReadOnlyList<PresetUse> PresetUses, IReadOnlyList<Macro> Macros, IReadOnlyList<MacroUse> MacroUses,
     string SelectedProfile, bool LayerActive, bool FollowsPrograms, string? AgentHash,
-    IReadOnlyList<HostShortcut> HostShortcuts);
+    IReadOnlyList<HostShortcut> HostShortcuts, IReadOnlyList<string> SystemActions, bool OpensApps, bool RunsShortcuts);
 
 /// <param name="Layer">Whether the button is bound in the profile's second layer rather than its main one.</param>
 public sealed record PresetUse(string Preset, string Profile, string Button, bool Layer = false);
@@ -82,6 +85,10 @@ public sealed record ButtonEvent(string? Button, int Cid, bool Down);
 /// <param name="Phase">"fire" when the path ran, "step" when it changed without running.</param>
 public sealed record GestureEvent(string? Button, string? Direction, IReadOnlyList<string> Path, string Phase);
 
+/// <param name="Option">The highlighted rose option's index, or null back in the middle.</param>
+/// <param name="Ran">Whether the option ran, as the button came up on it.</param>
+public sealed record RoseEvent(string? Button, int? Option, bool Ran);
+
 /// <param name="Count">1, 2 or 3 for a single, double or triple click.</param>
 public sealed record ClickEvent(string? Button, int Count);
 
@@ -97,6 +104,7 @@ public sealed record KeyCaptureEvent(bool Active);
 [JsonSerializable(typeof(ButtonEvent))]
 [JsonSerializable(typeof(GestureEvent))]
 [JsonSerializable(typeof(ClickEvent))]
+[JsonSerializable(typeof(RoseEvent))]
 [JsonSerializable(typeof(KeyEvent))]
 [JsonSerializable(typeof(KeyCaptureEvent))]
 [JsonSerializable(typeof(AgentSettings))]
@@ -105,5 +113,8 @@ public sealed record KeyCaptureEvent(bool Active);
 [JsonSerializable(typeof(Macro))]
 [JsonSerializable(typeof(ThumbWheelSettings))]
 [JsonSerializable(typeof(ProgramInfo[]))]
+[JsonSerializable(typeof(AppInfo[]))]
+[JsonSerializable(typeof(ShortcutInfo[]))]
 [JsonSerializable(typeof(string[]))]
+[JsonSerializable(typeof(Dictionary<string, string?>))]
 internal sealed partial class AgentJson : JsonSerializerContext;

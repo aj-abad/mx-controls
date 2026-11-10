@@ -7,10 +7,28 @@
       :default-label="defaultLabel"
       :layers="layers"
       :profiles="profiles"
+      :current-name="modelValue?.name ?? undefined"
       @update:model-value="choose"
       @record="capture?.start()"
     />
     <div class="flex h-10 shrink-0 items-center gap-3">
+      <AppPicker
+        v-if="modelValue?.type === 'open' && openKind(modelValue.open) === 'app'"
+        class="min-w-0 flex-1"
+        :id="(modelValue.open ?? '').slice(APP_PREFIX.length)"
+        :name="modelValue.name"
+        :label="label"
+        :auto-open="justChose"
+        @pick="(app) => update({ open: APP_PREFIX + app.id, name: app.name })" />
+      <input
+        v-else-if="modelValue?.type === 'open'"
+        ref="target"
+        :value="openKind(modelValue.open) === 'url' && !openComplete(modelValue.open) ? '' : (modelValue.open ?? '')"
+        :placeholder="openKind(modelValue.open) === 'url' ? 'https://example.com' : IS_MAC ? '~/Documents/Notes.txt' : 'C:\Users\Me\Documents'"
+        :aria-label="`${label}: ${openKind(modelValue.open) === 'url' ? 'web address' : 'file or folder path'}`"
+        spellcheck="false"
+        class="h-10 min-w-0 flex-1 rounded-lg bg-field px-3 text-sm ring-1 ring-line ring-inset outline-none! placeholder:text-ink-3 focus:ring-ink"
+        @change="(event) => setTarget((event.target as HTMLInputElement).value)" />
       <ShortcutCapture
         v-if="modelValue && (choice === 'shortcut' || choice === 'hold')"
         ref="capture"
@@ -85,6 +103,8 @@ const custom = ref(false);
 const choice = computed(() => {
   if (!modelValue) return "default";
   if (modelValue.type === "macro") return `macro:${modelValue.macro}`;
+  if (modelValue.type === "open") return `open:${openKind(modelValue.open)}`;
+  if (modelValue.type === "appleShortcut") return `appleShortcut:${modelValue.shortcut}`;
   if (modelValue.type === "layer") return `layer:${modelValue.layer}`;
   if (modelValue.type === "profile") return `profile:${modelValue.profile}`;
   const preset = presetFor(modelValue);
@@ -101,9 +121,23 @@ const choice = computed(() => {
   return "none";
 });
 
-function choose(id: string) {
+/** Set as "open an app" is chosen, so its list opens straight away; editing an existing one doesn't. */
+const justChose = ref(false);
+const target = useTemplateRef("target");
+
+function choose(id: string, name?: string) {
   custom.value = id === "shortcut" || id === "hold";
+  justChose.value = id.startsWith("open:");
   if (id === "default") return emit("default");
+  if (id.startsWith("open:")) {
+    const kind = id.slice(5);
+    if (modelValue?.type === "open" && openKind(modelValue.open) === kind) return;
+    emit("update:modelValue", { type: "open", open: kind === "app" ? APP_PREFIX : kind === "url" ? "https://" : "" });
+    if (kind !== "app") void nextTick(() => target.value?.focus());
+    return;
+  }
+  if (id.startsWith("appleShortcut:"))
+    return emit("update:modelValue", { type: "appleShortcut", shortcut: id.slice(14), name: name ?? null });
   if (id.startsWith("macro:"))
     return emit("update:modelValue", keepRepeat({
       type: "macro",
@@ -135,11 +169,28 @@ const actionHint = computed(() => {
       : "Each time, turns this profile's second layer on or off.";
   if (modelValue?.type === "profile")
     return "Programs with a profile of their own keep it; every other program gets this one.";
+  if (modelValue?.type === "open")
+    return {
+      app: "Opens the app, or brings it to the front if it's running.",
+      url: "Opens in your default browser, or the app that handles the link.",
+      path: "Opens with its default app; a folder opens in " + (IS_MAC ? "Finder." : "File Explorer."),
+    }[openKind(modelValue.open)];
+  if (modelValue?.type === "appleShortcut") return "Runs the Shortcut from the Shortcuts app, in the background.";
   return "";
 });
 
 const update = (patch: Partial<ButtonAction>) =>
   modelValue && emit("update:modelValue", { ...modelValue, ...patch });
+
+const IS_MAC = navigator.userAgent.includes("Mac");
+
+/** A typed web address gets https:// if it has no scheme, since "example.com" alone would read as a file. */
+function setTarget(value: string) {
+  let next = value.trim().replace(/^"(.*)"$/, "$1");
+  if (modelValue && openKind(modelValue.open) === "url" && next && openKind(next) === "path") next = `https://${next}`;
+  if (modelValue && openKind(modelValue.open) === "url" && !next) next = "https://";
+  update({ open: next });
+}
 
 const { goTo } = usePage();
 const { state } = useAgent();

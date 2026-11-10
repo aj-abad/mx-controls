@@ -13,6 +13,8 @@ const string Usage = """
                                                direction repeats, --trace saves them as JSON lines
       mx haptic <waveform>                     Play a haptic waveform, such as Completed or Knock
       mx hold <button>=<key> ... [--seconds N] Hold keyboard keys while mouse buttons are held
+      mx rose [count] [--layer]                Show the rose overlay with a ghost circling it, without the mouse
+      mx icon <program> <file.png>             Save a program's icon, as profiles show it, such as chrome.exe
 
     Buttons: middle, back, forward, gesture, smartshift, haptic
     Keys: A-Z, 0-9, F1-F24, Shift, Ctrl, Alt, Win, Space, arrows, or any KeyboardEvent.code such as ShiftRight
@@ -21,6 +23,16 @@ const string Usage = """
 if (args.Length == 0 || args[0] is "-h" or "--help" or "help")
 {
     Console.WriteLine(Usage);
+    return 0;
+}
+
+if (args[0] == "rose")
+    return await Rose(Platforms.Current(), args[1..]);
+if (args is ["icon", var program, var iconFile])
+{
+    if (Platforms.Current().Programs?.Icon(program) is not { } png)
+        return Fail($"No icon found for {program}.");
+    File.WriteAllBytes(iconFile, png);
     return 0;
 }
 
@@ -43,6 +55,40 @@ try
 catch (Exception error) when (error is InvalidOperationException or NotSupportedException or HidppException or IOException or TimeoutException)
 {
     return Fail(error.Message);
+}
+
+// Draws the overlay as a held rose would, so its look can be checked without a mouse.
+static async Task<int> Rose(MxControls.Platform.IPlatform platform, string[] args)
+{
+    if (platform.RoseOverlay is not { } overlay)
+        return Fail("This platform has no rose overlay yet.");
+    int count = args.Where(a => a != "--layer").Select(int.Parse).FirstOrDefault(8);
+    bool layer = args.Contains("--layer");
+    const string Circle = "M128,24a104,104,0,1,0,104,104A104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Z";
+    string[] labels = ["Copy", "Paste", "Need backup", "Task View", "", "Undo", "Screenshot", "Mute"];
+    var slots = Enumerable.Range(0, count).Select(i => new MxControls.Platform.RoseSlot(
+        labels[i % labels.Length], i % 2 == 0 ? Circle : null, labels[i % labels.Length].Length == 0, layer && i % 3 == 1)).ToArray();
+    var tracker = new RoseTracker { Dpi = 1000 };
+    tracker.Reset(count);
+    tracker.Add(0, 0);
+    int sentX = 0, sentY = 0;
+    var clock = System.Diagnostics.Stopwatch.StartNew();
+    while (clock.Elapsed < TimeSpan.FromSeconds(8))
+    {
+        double t = clock.Elapsed.TotalSeconds;
+        // Out from the middle, once round the rose, and back home.
+        double reach = Math.Min(1, Math.Sin(Math.Min(t / 8, 1) * Math.PI) * 1.6) * RoseTracker.RadiusMm / 25.4 * 1000;
+        double angle = t / 8 * 2 * Math.PI - Math.PI / 2;
+        double nx = Math.Cos(angle) * reach, ny = Math.Sin(angle) * reach;
+        int dx = (int)Math.Round(nx) - sentX, dy = (int)Math.Round(ny) - sentY;
+        tracker.Add(dx, dy);
+        (sentX, sentY) = (sentX + dx, sentY + dy);
+        overlay.Show(new MxControls.Platform.RoseView(slots, tracker.Selected, tracker.X, tracker.Y, RoseTracker.CenterRatio, layer));
+        await Task.Delay(16);
+    }
+    overlay.Hide();
+    await Task.Delay(100);
+    return 0;
 }
 
 static int Fail(string message)

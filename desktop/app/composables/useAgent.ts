@@ -36,6 +36,25 @@ export interface AgentState {
   macros: Macro[];
   /** Where each macro runs: a button or the thumb wheel in a profile, or a step of a gesture preset. */
   macroUses: MacroUse[];
+  /** The named system actions this platform runs, such as "taskView" or "lockScreen". */
+  systemActions: string[];
+  /** Whether `open` actions work here. */
+  opensApps: boolean;
+  /** Whether there's a Shortcuts app to run, which is only on a Mac. */
+  runsShortcuts: boolean;
+}
+
+/** An app `listApps` offers; an `open` action opens it as `app:` and its ID. */
+export interface AppInfo {
+  id: string;
+  name: string;
+}
+
+/** A Shortcut from the macOS Shortcuts app, as `listShortcuts` gives it. */
+export interface ShortcutInfo {
+  /** Its identifier, which stays when it's renamed. */
+  id: string;
+  name: string;
 }
 
 /** A named sequence of input that `macro` actions run by ID, so editing it changes everything that runs it. */
@@ -141,7 +160,7 @@ export interface ButtonState {
 
 /** Mirrors `agent/MxControls.Core/Actions/ButtonAction.cs`. */
 export interface ButtonAction {
-  type: "none" | "hold" | "press" | "system" | "click" | "macro" | "layer" | "profile";
+  type: "none" | "hold" | "press" | "system" | "click" | "macro" | "layer" | "profile" | "open" | "appleShortcut";
   /** `KeyboardEvent.code` names in press order, modifiers first. */
   keys?: string[] | null;
   system?: string | null;
@@ -154,6 +173,12 @@ export interface ButtonAction {
   layer?: "momentary" | "toggle" | null;
   /** For `profile`: the ID of a profile that follows no programs. */
   profile?: string | null;
+  /** For `open`: a web address, a file or folder path, or `app:` and an app's ID. */
+  open?: string | null;
+  /** For `appleShortcut`: the Shortcut's identifier. */
+  shortcut?: string | null;
+  /** For an app or a Shortcut: its name when chosen. */
+  name?: string | null;
 }
 
 export type Direction = "up" | "down" | "left" | "right";
@@ -186,10 +211,31 @@ export type GestureActions = Record<Direction, GestureStep> & {
   spacingMm?: number;
 };
 
-/** A gesture follows `preset`, with `action` and the double and triple clicks as its clicks. */
+/** One option of a rose; mirrors `RoseItem` in `agent/MxControls.Core/Actions/RoseMenu.cs`. */
+export interface RoseItem {
+  action: ButtonAction;
+  /** What the rose shows; the agent names the action when there's none. */
+  label?: string | null;
+  /** A Phosphor icon name, from `ROSE_ICONS`. */
+  icon?: string | null;
+  /** The icon's SVG path data on a 256-unit square, which the agent's overlay draws. */
+  iconPath?: string | null;
+  /** Second layer only: shows and runs the main layer's option in the same place. */
+  passThrough?: boolean;
+}
+
+/** 2 to 8 options around the pointer while the button is held, clockwise from the top. */
+export interface RoseMenu {
+  items: RoseItem[];
+}
+
+/**
+ * A gesture follows `preset`, with `action` and the double and triple clicks as its clicks. A rose shows `rose`
+ * while held, and `action` is what a quick press that never leaves the middle runs.
+ */
 export interface ButtonBinding {
   button: string;
-  mode: "action" | "gesture";
+  mode: "action" | "gesture" | "rose";
   action?: ButtonAction | null;
   gesture?: GestureActions | null;
   /** What two quick clicks run. */
@@ -198,6 +244,16 @@ export interface ButtonBinding {
   tripleClick?: ButtonAction | null;
   /** For `gesture`: the preset it follows. */
   preset?: string | null;
+  /** For `rose`: its options. */
+  rose?: RoseMenu | null;
+}
+
+/** A rose's highlight moved, or its option ran as the button came up. */
+export interface RoseEvent {
+  button: string | null;
+  /** The option's index, or null back in the middle. */
+  option: number | null;
+  ran: boolean;
 }
 
 /** A diverted control going down or up; the agent only hears the controls it or another app diverted. */
@@ -239,6 +295,8 @@ interface KeyHandlers {
 const agentState = shallowRef<AgentState | null>(null);
 const pipeConnected = ref(false);
 const lastGesture = shallowRef<GestureEvent | null>(null);
+/** The last change to an open rose. A new object each time. */
+const lastRose = shallowRef<RoseEvent | null>(null);
 /** The last click a bound button ran, as the agent counted it. A new object each time. */
 const lastClick = shallowRef<ClickEvent | null>(null);
 /** The last diverted control pressed down. A new object each time, so pressing the same one again still notifies. */
@@ -334,6 +392,9 @@ const state = computed(() => {
 async function call<T = AgentState>(method: string, params: Record<string, unknown> = {}) {
   if (!inTauri()) {
     if (method === "listPrograms") return previewPrograms() as T;
+    if (method === "listApps") return previewApps() as T;
+    if (method === "listShortcuts") return previewShortcuts() as T;
+    if (method === "getProgramIcons") return previewProgramIcons(params.ids as string[]) as T;
     const current = agentState.value!;
     receive({ ...previewCall(current, method, params), revision: current.revision + 1 });
     return agentState.value as T;
@@ -446,6 +507,7 @@ function start() {
     if (payload.event === "keyCapture" && !(payload.data as { active: boolean }).active) keyHandlers?.ended();
     if (payload.event === "gesture") lastGesture.value = { ...(payload.data as GestureEvent) };
     if (payload.event === "click") lastClick.value = { ...(payload.data as ClickEvent) };
+    if (payload.event === "rose") lastRose.value = { ...(payload.data as RoseEvent) };
     if (payload.event === "button" && (payload.data as ButtonEvent).down) lastPress.value = { ...(payload.data as ButtonEvent) };
   });
   void listen<boolean>("agent://connection", ({ payload }) => {
@@ -464,5 +526,5 @@ function start() {
 export function useAgent() {
   start();
   const device = computed(() => (state.value?.connected ? state.value.device : null));
-  return { state, device, pipeConnected, lastGesture, lastClick, lastPress, failure, dismissFailure, call, attempt, captureKeys };
+  return { state, device, pipeConnected, lastGesture, lastClick, lastRose, lastPress, failure, dismissFailure, call, attempt, captureKeys };
 }

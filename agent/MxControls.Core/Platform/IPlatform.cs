@@ -97,6 +97,65 @@ public interface IPrograms
 
     /// <summary>The programs with a window open, each once.</summary>
     IReadOnlyList<ProgramInfo> Running();
+
+    /// <summary>
+    /// The program's own icon as a PNG, about 48 pixels square, or null where it can't be found, as for a program
+    /// that isn't installed. It can take a moment, so it's asked for off the mouse's thread.
+    /// </summary>
+    byte[]? Icon(string id) => null;
+}
+
+/// <summary>One option of a rose as the overlay draws it.</summary>
+/// <param name="IconPath">SVG path data on a 256-unit square, or null for a label alone.</param>
+/// <param name="Empty">Nothing runs here; it's drawn dimmed.</param>
+/// <param name="Inherited">A second-layer option showing the main layer's option in its place.</param>
+public sealed record RoseSlot(string Label, string? IconPath, bool Empty, bool Inherited);
+
+/// <summary>What the rose overlay shows: its options clockwise from the top, and where the ghost cursor is.</summary>
+/// <param name="Selected">The highlighted option, or null with the ghost in the middle.</param>
+/// <param name="GhostX">The ghost cursor's position, -1 to 1 across the rose, y growing downwards.</param>
+/// <param name="CenterRatio">The middle's share of the radius, where letting go runs nothing.</param>
+/// <param name="SecondLayer">Whether these are the second layer's options.</param>
+public sealed record RoseView(
+    IReadOnlyList<RoseSlot> Slots, int? Selected, double GhostX, double GhostY, double CenterRatio, bool SecondLayer);
+
+/// <summary>
+/// Draws a rose around the pointer, above every window, without taking focus or clicks. Calls come from the
+/// mouse's event thread and must return at once; the overlay draws the latest view on a thread of its own.
+/// </summary>
+public interface IRoseOverlay
+{
+    /// <summary>Shows the rose centred where the pointer is, or redraws it in place if it's showing.</summary>
+    void Show(RoseView view);
+
+    void Hide();
+}
+
+/// <summary>An app a person can open, as the platform lists it.</summary>
+/// <param name="Id">What <see cref="IApps.Open"/> takes after <c>app:</c>: an app ID on Windows, a bundle path on a Mac.</param>
+public sealed record AppInfo(string Id, string Name);
+
+/// <summary>Opens apps, files, folders and links the way the system's own launcher does.</summary>
+public interface IApps
+{
+    /// <summary>The apps installed for this user, each once, by name. It can take a moment, so it's asked for off the mouse's thread.</summary>
+    IReadOnlyList<AppInfo> Installed();
+
+    /// <summary>Opens an <c>open</c> action's target: see <see cref="Actions.OpenTarget"/>. Returns at once.</summary>
+    void Open(string target);
+}
+
+/// <summary>A Shortcut from the macOS Shortcuts app.</summary>
+/// <param name="Id">Its identifier, which stays when it's renamed.</param>
+public sealed record ShortcutInfo(string Id, string Name);
+
+/// <summary>Runs Shortcuts from the macOS Shortcuts app.</summary>
+public interface IShortcuts
+{
+    IReadOnlyList<ShortcutInfo> List();
+
+    /// <summary>Starts the Shortcut and returns at once; it runs as long as it takes.</summary>
+    void Run(string id);
 }
 
 public interface IPlatform
@@ -113,6 +172,15 @@ public interface IPlatform
 
     /// <summary>Null where the platform can't watch keys in other apps; global shortcuts then can't be set.</summary>
     IKeyWatch? KeyWatch { get; }
+
+    /// <summary>Null where the platform can't open apps; <c>open</c> actions are then refused.</summary>
+    IApps? Apps => null;
+
+    /// <summary>Null where there's no Shortcuts app, which is everywhere but a Mac.</summary>
+    IShortcuts? Shortcuts => null;
+
+    /// <summary>Null where the platform can't draw a rose; roses then still run, felt through haptics alone.</summary>
+    IRoseOverlay? RoseOverlay => null;
 
     /// <summary>Named actions whose keys differ by platform, such as "taskView"; see <see cref="Actions.SystemActions"/>.</summary>
     bool SupportsSystem(string name);

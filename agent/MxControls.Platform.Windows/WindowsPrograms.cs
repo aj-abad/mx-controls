@@ -1,5 +1,7 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Microsoft.Win32;
 using System.Runtime.Versioning;
 using MxControls.Platform;
 
@@ -23,6 +25,9 @@ public sealed unsafe partial class WindowsPrograms : IPrograms
 
     // The hook procedure is a static function pointer, so it finds the watcher here; the agent has just one.
     private static Watcher? s_watcher;
+
+    // Where each program seen running lives, so its icon can be found after it closes.
+    private static readonly ConcurrentDictionary<string, string> s_paths = new(StringComparer.OrdinalIgnoreCase);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Msg
@@ -121,6 +126,7 @@ public sealed unsafe partial class WindowsPrograms : IPrograms
             if (pid == Environment.ProcessId || ImagePath(pid) is not { } path)
                 continue;
             var id = Path.GetFileName(path).ToLowerInvariant();
+            s_paths[id] = path;
             // Store apps all draw their windows through this host, so it names none of them.
             if (id != "applicationframehost.exe" && !seen.ContainsKey(id))
                 seen[id] = new ProgramInfo(id, DisplayName(path));
@@ -175,7 +181,38 @@ public sealed unsafe partial class WindowsPrograms : IPrograms
         if (hwnd == 0)
             return null;
         GetWindowThreadProcessId(hwnd, out var pid);
-        return ImagePath(pid) is { } path ? Path.GetFileName(path).ToLowerInvariant() : null;
+        if (ImagePath(pid) is not { } path)
+            return null;
+        var id = Path.GetFileName(path).ToLowerInvariant();
+        s_paths[id] = path;
+        return id;
+    }
+
+    public byte[]? Icon(string id) => PathOf(id) is { } path ? WindowsIcons.Extract(path) : null;
+
+    /// <summary>
+    /// Where a program's executable is: where it was seen running, where an installer registered it, or where a
+    /// process of it runs now in the background.
+    /// </summary>
+    private static string? PathOf(string id)
+    {
+        if (s_paths.TryGetValue(id, out var seen) && File.Exists(seen))
+            return seen;
+        foreach (var hive in new[] { Registry.CurrentUser, Registry.LocalMachine })
+        {
+            using var key = hive.OpenSubKey($@"Software\Microsoft\Windows\CurrentVersion\App Paths\{id}");
+            if (key?.GetValue(null) is string registered && File.Exists(registered.Trim('"')))
+                return s_paths[id] = registered.Trim('"');
+        }
+        foreach (var process in Process.GetProcesses())
+        {
+            using (process)
+            {
+                if (ImagePath((uint)process.Id) is { } path && Path.GetFileName(path).Equals(id, StringComparison.OrdinalIgnoreCase))
+                    return s_paths[id] = path;
+            }
+        }
+        return null;
     }
 
     [UnmanagedCallersOnly]

@@ -13,19 +13,37 @@
 
     <fieldset class="flex flex-col gap-1.5">
       <legend class="mb-1.5 text-xs font-medium text-ink-3">Icon</legend>
-      <div class="grid grid-cols-7 gap-1">
-        <button
-          v-for="choice in CHOICES"
-          :key="choice ?? ''"
-          type="button"
-          :aria-label="choice ? choice.replaceAll('-', ' ') : 'Initial'"
-          :aria-pressed="profile.icon === choice"
-          class="grid size-9 place-items-center rounded-lg transition-colors duration-150"
-          :class="profile.icon === choice ? 'bg-ink text-on-ink' : 'text-ink-2 hover:bg-fill hover:text-ink'"
-          @click="setIcon(choice)">
-          <ProfileAvatar :profile="{ name: name || profile.name, icon: choice }" class="size-5" />
-        </button>
+      <!-- A profile that follows programs wears the program's icon, so it's the program you recognise in the bar. -->
+      <div v-if="programs.length" class="flex items-center gap-3 rounded-lg bg-fill/60 px-3 py-2.5">
+        <ProfileAvatar :profile="profile" class="size-7 shrink-0" />
+        <p class="text-xs leading-relaxed text-ink-3">
+          Shows {{ programs[0] }}'s icon while it follows programs. Remove its programs to choose one.
+        </p>
       </div>
+      <template v-else>
+        <input
+          v-model="iconQuery"
+          aria-label="Search icons"
+          placeholder="Search icons"
+          spellcheck="false"
+          class="h-8 rounded-lg bg-field px-3 text-xs ring-1 ring-line ring-inset outline-none! placeholder:text-ink-3 focus:ring-ink" />
+        <UiScrollArea class="h-40" content-class="grid grid-cols-7 gap-1 pr-2">
+          <button
+            v-for="choice in shownChoices"
+            :key="choice ?? ''"
+            type="button"
+            :aria-label="choice ? choice.replaceAll('-', ' ') : 'Initial'"
+            :aria-pressed="profile.icon === choice"
+            class="grid size-9 place-items-center rounded-lg transition-colors duration-150"
+            :class="profile.icon === choice ? 'bg-ink text-on-ink' : 'text-ink-2 hover:bg-fill hover:text-ink'"
+            @click="setIcon(choice)">
+            <ProfileAvatar :profile="{ name: name || profile.name, icon: choice }" class="size-5" />
+          </button>
+          <p v-if="!shownChoices.length" class="col-span-7 py-4 text-center text-xs text-ink-3">
+            No icons match “{{ iconQuery }}”
+          </p>
+        </UiScrollArea>
+      </template>
     </fieldset>
 
     <fieldset v-if="state?.followsPrograms" class="flex flex-col gap-2">
@@ -103,6 +121,13 @@ const { state, attempt, call } = useAgent();
 
 // The profile's initial comes first, for a profile that wants no icon.
 const CHOICES = [null, ...Object.keys(PROFILE_ICONS)];
+const iconQuery = ref("");
+// Searching leaves out the initial, which has no name to match.
+const shownChoices = computed(() => {
+  const words = iconQuery.value.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return CHOICES;
+  return CHOICES.filter((choice) => choice && words.every((word) => choice.replaceAll("-", " ").includes(word)));
+});
 
 const name = ref(profile.name);
 const input = useTemplateRef("input");
