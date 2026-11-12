@@ -47,7 +47,8 @@ public sealed class ButtonEngine : IAsyncDisposable
 
     /// <summary>
     /// The rose open on a held control: the options of the layer that's on, which change with it, and the main
-    /// layer's under a second-layer rose that passes some through.
+    /// layer's under a second-layer rose that passes some through. <see cref="Path"/> is the folders opened on the
+    /// way to the ring showing, by index, and <see cref="Level"/> that ring's options.
     /// </summary>
     private sealed class OpenRose(ushort cid, long pressedAt)
     {
@@ -56,8 +57,14 @@ public sealed class ButtonEngine : IAsyncDisposable
         public RoseMenu Own { get; set; } = null!;
         public RoseMenu? Main { get; set; }
         public RoseMenu Shown { get; set; } = null!;
+        public List<int> Path { get; } = [];
+        public IReadOnlyList<RoseItem> Level { get; set; } = [];
         public bool SecondLayer { get; set; }
         public bool Visible { get; set; }
+        /// <summary>Whether the ghost has highlighted an option in this ring, so resting in its middle goes back.</summary>
+        public bool LeftLevelCenter { get; set; }
+        /// <summary>When the ghost, resting in a folder's middle, goes back to the ring before.</summary>
+        public long? BackAt { get; set; }
     }
 
     private sealed class Clicks(ClickCounter counter, Timer timer)
@@ -68,17 +75,15 @@ public sealed class ButtonEngine : IAsyncDisposable
         public ButtonBinding? Binding { get; set; }
     }
 
-    /// <summary>
-    /// A gesture's path changed or ran: control ID, the directions taken ("up", "down", "left" or "right", one per
-    /// step), and whether it ran rather than just moved. A first direction with nothing beyond runs as it's reached.
-    /// </summary>
-    public event Action<ushort, IReadOnlyList<string>, bool>? GestureFired;
+    /// <summary>A gesture direction ran as it was reached: control ID and "up", "down", "left" or "right".</summary>
+    public event Action<ushort, string>? GestureFired;
 
     /// <summary>
-    /// A rose's highlight moved or an option ran: control ID, the option's index or null for the middle, and whether
-    /// it ran. Raised inside the engine's lock: don't block.
+    /// A rose's highlight moved, a folder opened or closed, or an option ran: control ID, the folders open by index,
+    /// the option's index in the ring showing or null for the middle, and whether it ran. Raised inside the engine's
+    /// lock: don't block.
     /// </summary>
-    public event Action<ushort, int?, bool>? RoseChanged;
+    public event Action<ushort, IReadOnlyList<int>, int?, bool>? RoseChanged;
 
     /// <summary>
     /// A control kept raw XY for a rose open across a layer change, and its binding now doesn't want it; write it
@@ -114,6 +119,9 @@ public sealed class ButtonEngine : IAsyncDisposable
 
     /// <summary>A rose press shorter than this that never left the middle is a click.</summary>
     public const int RoseClickMs = 250;
+
+    /// <summary>How long the ghost rests in a folder's middle, after leaving it, before the ring before comes back.</summary>
+    public const int RoseBackMs = 350;
 
     private ButtonEngine(MxDevice device, IPlatform platform, MacroLibrary? macros)
     {
@@ -238,6 +246,10 @@ public sealed class ButtonEngine : IAsyncDisposable
                 throw new ArgumentException(problem, nameof(bindings));
             if (binding.IsGesture && binding.Gesture is null)
                 throw new ArgumentException($"{binding.Button}: resolve the gesture preset first.", nameof(bindings));
+            if (binding.IsRose && binding.Rose is null)
+                throw new ArgumentException($"{binding.Button}: resolve the rose menu first.", nameof(bindings));
+            if (binding.Inherits)
+                throw new ArgumentException($"{binding.Button}: resolve the base profile's binding first.", nameof(bindings));
             map[ReprogControls.KnownButtons[binding.Button]] = binding;
         }
         return map;
@@ -374,17 +386,7 @@ public sealed class ButtonEngine : IAsyncDisposable
             }
             if (binding.IsGesture && _gestureButton == cid)
             {
-                // A path runs where it ends, as a tap; a step with no action is a junction, and backing out cancels.
-                if (_tracker.Step is { } step)
-                {
-                    // A repeating step ran as it was reached.
-                    if (_tracker.ReleaseStep is not null)
-                    {
-                        RunOnce(step.Action);
-                        GestureFired?.Invoke(cid, Names(_tracker.Path), true);
-                    }
-                }
-                else if (_tracker.IsClick)
+                if (_tracker.IsClick)
                     Click(cid, binding);
                 else if (_tracker.Direction is null)
                     InterruptClicks(cid);
@@ -512,25 +514,7 @@ public sealed class ButtonEngine : IAsyncDisposable
     private void OnMove(ushort cid, int dx, int dy)
     {
         if (_tracker.Add(dx, dy, Now) is { } direction)
-        {
             Fire(cid, direction);
-            return;
-        }
-        if (_tracker.Change is PathChange.None)
-            return;
-        // Reaching a step that turns feels different, so the hand knows a turn is there without looking.
-        if (GestureHaptic is { } reached)
-            Tap(_tracker.Change switch
-            {
-                PathChange.ReachedBranch => HapticWaveform.DampStateChange,
-                PathChange.BackedOff => HapticWaveform.WhisperCollision,
-                _ => reached,
-            });
-        InterruptClicks(cid);
-        bool ran = _tracker.Change is PathChange.Ran;
-        if (ran)
-            RunOnce(_tracker.Step!.Action);
-        GestureFired?.Invoke(cid, Names(_tracker.Path), ran);
     }
 
     /// <summary>
@@ -544,13 +528,13 @@ public sealed class ButtonEngine : IAsyncDisposable
         if (GestureHaptic is { } waveform)
             Tap(waveform);
         InterruptClicks(cid);
-        var action = gesture[direction].Action;
+        var action = gesture[direction];
         End(cid);
         if (action.Repeat)
             RunOnce(action);
         else
             Begin(cid, action);
-        GestureFired?.Invoke(cid, [Name(direction)], true);
+        GestureFired?.Invoke(cid, Name(direction));
     }
 
     private void LayerSwitched()
@@ -580,11 +564,12 @@ public sealed class ButtonEngine : IAsyncDisposable
         var rose = new OpenRose(cid, Now);
         _rose = rose;
         Choose(rose, menu);
-        _roseTracker.Reset(rose.Shown.Items.Count);
+        _roseTracker.Reset(rose.Level.Count);
         _roseTimer ??= new Timer(_ => OnRoseTimer());
         _roseTimer.Change(RoseShowDelayMs, Timeout.Infinite);
     }
 
+    /// <summary>Takes these options, staying in the folders open as far as the new options still have them.</summary>
     private static void Choose(OpenRose rose, (RoseMenu Own, RoseMenu? Main, bool Second) menu)
     {
         rose.Own = menu.Own;
@@ -592,6 +577,9 @@ public sealed class ButtonEngine : IAsyncDisposable
         rose.SecondLayer = menu.Second;
         // A main-layer rose has nothing beneath it, so anything it passes through is empty.
         rose.Shown = menu.Own.Over(menu.Main);
+        while (rose.Path.Count > 0 && RoseMenu.At(rose.Shown.Items, rose.Path) is null)
+            rose.Path.RemoveAt(rose.Path.Count - 1);
+        rose.Level = RoseMenu.At(rose.Shown.Items, rose.Path)!;
     }
 
     private void OnRoseTimer()
@@ -600,8 +588,18 @@ public sealed class ButtonEngine : IAsyncDisposable
         {
             try
             {
-                if (_rose is { Visible: false } rose && Now - rose.PressedAt >= RoseShowDelayMs - 5)
+                if (_rose is not { } rose)
+                    return;
+                if (!rose.Visible && Now - rose.PressedAt >= RoseShowDelayMs - 5)
                     ShowRose(rose);
+                if (rose.BackAt is { } at && rose.Path.Count > 0 && _roseTracker.Selected is null)
+                {
+                    // The timer can wake a little before the clock reads the time.
+                    if (Now >= at - 5)
+                        LeaveFolder(rose);
+                    else
+                        _roseTimer?.Change(Math.Max(1, at - Now), Timeout.Infinite);
+                }
             }
             catch (Exception error)
             {
@@ -614,15 +612,59 @@ public sealed class ButtonEngine : IAsyncDisposable
     {
         var rose = _rose!;
         bool changed = _roseTracker.Add(dx, dy);
+        if (_roseTracker.Selected is { } open && rose.Level[open].IsFolder && _roseTracker.AtRim)
+        {
+            OpenFolder(rose, open);
+            return;
+        }
         if (changed)
         {
+            if (_roseTracker.Selected is not null)
+            {
+                rose.LeftLevelCenter = true;
+                rose.BackAt = null;
+            }
+            else if (rose.Path.Count > 0 && rose.LeftLevelCenter)
+            {
+                rose.BackAt = Now + RoseBackMs;
+                _roseTimer?.Change(RoseBackMs, Timeout.Infinite);
+            }
             // The hand feels each option it reaches; an empty one and the middle are fainter.
             if (GestureHaptic is { } reached)
-                Tap(_roseTracker.Selected is { } index && rose.Shown.Items[index].Action.IsSet ? reached : HapticWaveform.WhisperCollision);
-            RoseChanged?.Invoke(rose.Cid, _roseTracker.Selected, false);
+                Tap(_roseTracker.Selected is { } index && rose.Level[index].IsSet ? reached : HapticWaveform.WhisperCollision);
+            RoseChanged?.Invoke(rose.Cid, [.. rose.Path], _roseTracker.Selected, false);
         }
         if (rose.Visible || _roseTracker.LeftCenter)
             ShowRose(rose);
+    }
+
+    /// <summary>The ghost pushed on to the rim of a folder: its options take the ring's place, the ghost back in the middle.</summary>
+    private void OpenFolder(OpenRose rose, int index)
+    {
+        rose.Path.Add(index);
+        rose.Level = rose.Level[index].Items!;
+        rose.LeftLevelCenter = false;
+        rose.BackAt = null;
+        _roseTracker.Enter(rose.Level.Count);
+        if (GestureHaptic is not null)
+            Tap(HapticWaveform.DampStateChange);
+        RoseChanged?.Invoke(rose.Cid, [.. rose.Path], null, false);
+        ShowRose(rose);
+    }
+
+    /// <summary>The ghost rested in a folder's middle: the ring the folder is in comes back, the ghost in its middle.</summary>
+    private void LeaveFolder(OpenRose rose)
+    {
+        rose.Path.RemoveAt(rose.Path.Count - 1);
+        rose.Level = RoseMenu.At(rose.Shown.Items, rose.Path)!;
+        // Going back further takes leaving the middle and resting there again, so resting never runs off to the top.
+        rose.LeftLevelCenter = false;
+        rose.BackAt = null;
+        _roseTracker.Enter(rose.Level.Count);
+        if (GestureHaptic is not null)
+            Tap(HapticWaveform.DampStateChange);
+        RoseChanged?.Invoke(rose.Cid, [.. rose.Path], null, false);
+        ShowRose(rose);
     }
 
     /// <summary>The layer changed with a rose open: it shows the new layer's options, if it has a rose of its own.</summary>
@@ -633,12 +675,20 @@ public sealed class ButtonEngine : IAsyncDisposable
         if (menu.Own == rose.Own && menu.Main == rose.Main && menu.Second == rose.SecondLayer)
             return;
         var before = _roseTracker.Selected;
+        int depth = rose.Path.Count;
         Choose(rose, menu);
-        _roseTracker.Count = rose.Shown.Items.Count;
+        if (rose.Path.Count != depth)
+        {
+            rose.LeftLevelCenter = false;
+            rose.BackAt = null;
+            _roseTracker.Enter(rose.Level.Count);
+        }
+        else
+            _roseTracker.Count = rose.Level.Count;
         if (GestureHaptic is not null)
             Tap(HapticWaveform.DampStateChange);
-        if (_roseTracker.Selected != before)
-            RoseChanged?.Invoke(rose.Cid, _roseTracker.Selected, false);
+        if (_roseTracker.Selected != before || rose.Path.Count != depth)
+            RoseChanged?.Invoke(rose.Cid, [.. rose.Path], _roseTracker.Selected, false);
         if (rose.Visible)
             ShowRose(rose);
     }
@@ -648,23 +698,30 @@ public sealed class ButtonEngine : IAsyncDisposable
         rose.Visible = true;
         if (_platform.RoseOverlay is not { } overlay)
             return;
-        var slots = rose.Shown.Items.Select((item, i) => new RoseSlot(
-            Label(item), item.IconPath, !item.Action.IsSet, rose.SecondLayer && rose.Own.Items[i].PassThrough)).ToArray();
-        overlay.Show(new RoseView(slots, _roseTracker.Selected, _roseTracker.X, _roseTracker.Y, RoseTracker.CenterRatio, rose.SecondLayer));
+        var slots = rose.Level.Select(item => new RoseSlot(
+            Label(item), item.IconPath, !item.IsSet, rose.SecondLayer && item.FromMain, item.IsFolder)).ToArray();
+        string? folder = rose.Path.Count > 0
+            ? Label(RoseMenu.At(rose.Shown.Items, rose.Path.Take(rose.Path.Count - 1))![rose.Path[^1]])
+            : null;
+        overlay.Show(new RoseView(slots, _roseTracker.Selected, _roseTracker.X, _roseTracker.Y, RoseTracker.CenterRatio,
+            rose.SecondLayer, folder));
     }
 
-    /// <summary>The rose's button came up: runs the highlighted option, or the quick press, or nothing from the middle.</summary>
+    /// <summary>
+    /// The rose's button came up: runs the highlighted option, or the quick press, or nothing from the middle or a
+    /// folder.
+    /// </summary>
     private void ReleaseRose(ButtonBinding binding)
     {
         var rose = _rose!;
         var selected = _roseTracker.Selected;
         bool click = selected is null && !_roseTracker.LeftCenter && Now - rose.PressedAt < RoseClickMs;
-        var action = selected is { } index ? rose.Shown.Items[index].Action : null;
+        var action = selected is { } index && rose.Level[index] is { IsFolder: false } item ? item.Action : null;
         CloseRose();
         if (action is { IsSet: true })
         {
             RunOnce(action);
-            RoseChanged?.Invoke(rose.Cid, selected, true);
+            RoseChanged?.Invoke(rose.Cid, [.. rose.Path], selected, true);
         }
         else if (click && binding.Clicks.Single.IsSet)
             Click(rose.Cid, binding);
@@ -688,6 +745,8 @@ public sealed class ButtonEngine : IAsyncDisposable
     {
         if (!string.IsNullOrWhiteSpace(item.Label))
             return item.Label.Trim();
+        if (item.IsFolder)
+            return "More";
         var action = item.Action;
         return action.Type switch
         {
@@ -754,8 +813,6 @@ public sealed class ButtonEngine : IAsyncDisposable
     }
 
     private static string Name(GestureDirection direction) => direction.ToString().ToLowerInvariant();
-
-    private static string[] Names(IReadOnlyList<GestureDirection> path) => [.. path.Select(Name)];
 
     public async ValueTask DisposeAsync()
     {

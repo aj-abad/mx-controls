@@ -18,6 +18,9 @@ public sealed class RoseTracker
     /// <summary>Desk travel from the middle before an option is highlighted.</summary>
     public const double CenterMm = 3.6;
 
+    /// <summary>Desk travel from the middle at which a highlighted folder opens: just short of the rim, where the ghost stops.</summary>
+    public const double FolderMm = RadiusMm - 0.75;
+
     private const double CenterHysteresisMm = 0.8;
     private const double AngleHysteresis = 6 * Math.PI / 180;
 
@@ -38,6 +41,9 @@ public sealed class RoseTracker
     public double X => _xMm / RadiusMm;
 
     public double Y => _yMm / RadiusMm;
+
+    /// <summary>Whether the ghost has been pushed out to the rim, where a highlighted folder opens.</summary>
+    public bool AtRim => Math.Sqrt(_xMm * _xMm + _yMm * _yMm) >= FolderMm;
 
     /// <summary>The middle's share of the rose's radius, where nothing is highlighted.</summary>
     public static double CenterRatio => CenterMm / RadiusMm;
@@ -66,6 +72,18 @@ public sealed class RoseTracker
         LeftCenter = false;
         // As with gestures, the first raw report of a press carries movement from before it.
         _stale = true;
+    }
+
+    /// <summary>
+    /// Starts again in the middle of another ring, as opening or leaving a folder does, keeping the next movement.
+    /// </summary>
+    /// <param name="leftCenter">Whether the press counts as having left the middle, so letting go isn't a click.</param>
+    public void Enter(int count, bool leftCenter = true)
+    {
+        _xMm = _yMm = 0;
+        _count = Math.Clamp(count, RoseMenu.MinItems, RoseMenu.MaxItems);
+        Selected = null;
+        LeftCenter = leftCenter;
     }
 
     /// <summary>Moves the ghost; returns whether <see cref="Selected"/> changed.</summary>

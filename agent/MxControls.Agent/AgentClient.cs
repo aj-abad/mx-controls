@@ -26,7 +26,7 @@ public static class AgentClient
         // The agent sends its state first and can push events at any time, so read until the reply.
         while (await reader.ReadLineAsync(timeout.Token) is { } line)
         {
-            using var message = JsonDocument.Parse(line);
+            using var message = JsonDocument.Parse(line, Protocol.Document);
             if (message.RootElement.TryGetProperty("id", out _))
                 return message.RootElement.TryGetProperty("error", out var error) ? error.GetString() : null;
         }

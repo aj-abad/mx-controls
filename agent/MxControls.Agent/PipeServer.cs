@@ -81,9 +81,9 @@ public sealed class PipeServer(AgentService service)
         var clock = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            using var request = JsonDocument.Parse(line);
+            using var request = JsonDocument.Parse(line, Protocol.Document);
             var root = request.RootElement;
-            id = root.TryGetProperty("id", out var idElement) ? JsonNode.Parse(idElement.GetRawText()) : null;
+            id = root.TryGetProperty("id", out var idElement) ? JsonNode.Parse(idElement.GetRawText(), documentOptions: Protocol.Document) : null;
             method = root.GetProperty("method").GetString() ?? "";
             var parameters = root.TryGetProperty("params", out var p) ? p.Clone() : JsonDocument.Parse("{}").RootElement;
             args = parameters.GetRawText();

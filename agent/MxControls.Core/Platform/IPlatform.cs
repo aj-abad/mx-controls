@@ -109,15 +109,20 @@ public interface IPrograms
 /// <param name="IconPath">SVG path data on a 256-unit square, or null for a label alone.</param>
 /// <param name="Empty">Nothing runs here; it's drawn dimmed.</param>
 /// <param name="Inherited">A second-layer option showing the main layer's option in its place.</param>
-public sealed record RoseSlot(string Label, string? IconPath, bool Empty, bool Inherited);
+/// <param name="Folder">It opens a ring of its own when the ghost is pushed on to the rim.</param>
+public sealed record RoseSlot(string Label, string? IconPath, bool Empty, bool Inherited, bool Folder = false);
 
 /// <summary>What the rose overlay shows: its options clockwise from the top, and where the ghost cursor is.</summary>
 /// <param name="Selected">The highlighted option, or null with the ghost in the middle.</param>
 /// <param name="GhostX">The ghost cursor's position, -1 to 1 across the rose, y growing downwards.</param>
 /// <param name="CenterRatio">The middle's share of the radius, where letting go runs nothing.</param>
 /// <param name="SecondLayer">Whether these are the second layer's options.</param>
+/// <param name="Folder">
+/// The name of the folder whose options these are, or null for the rose's own. In a folder, resting in the middle goes back.
+/// </param>
 public sealed record RoseView(
-    IReadOnlyList<RoseSlot> Slots, int? Selected, double GhostX, double GhostY, double CenterRatio, bool SecondLayer);
+    IReadOnlyList<RoseSlot> Slots, int? Selected, double GhostX, double GhostY, double CenterRatio, bool SecondLayer,
+    string? Folder = null);
 
 /// <summary>
 /// Draws a rose around the pointer, above every window, without taking focus or clicks. Calls come from the

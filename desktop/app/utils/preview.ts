@@ -5,22 +5,22 @@ import type {
   ButtonAction,
   ButtonBinding,
   GesturePreset,
-  GestureStep,
   Macro,
   MacroUse,
   ProfileSummary,
   ProgramInfo,
+  RoseItem,
+  RoseMenu,
   ThumbWheelSettings,
 } from "~/composables/useAgent";
 
-const step = (id: string, more: Partial<GestureStep> = {}): GestureStep => ({ ...(presetById(id)!.action as ButtonAction), ...more });
-const NONE: GestureStep = { type: "none" };
+const step = (id: string, more: Partial<ButtonAction> = {}): ButtonAction => ({ ...presetById(id)!.action, ...more });
 const IS_MAC = navigator.userAgent.includes("Mac");
 
 /** Build lazily: actions describe macros through useAgent, which also imports this preview. */
 const builtInPresets = (): GesturePreset[] => [
-  { id: "desktops", name: "Desktops", up: step("taskView"), down: step("showDesktop"), left: step("desktopLeft"), right: step("desktopRight"), spacingMm: 6 },
-  { id: "browser", name: "Browser", up: step("newTab"), down: step("closeTab"), left: step("back"), right: step("forward"), spacingMm: 6 },
+  { id: "desktops", name: "Desktops", up: step("taskView"), down: step("showDesktop"), left: step("desktopLeft"), right: step("desktopRight") },
+  { id: "browser", name: "Browser", up: step("newTab"), down: step("closeTab"), left: step("back"), right: step("forward") },
   {
     id: "media",
     name: "Media",
@@ -28,7 +28,6 @@ const builtInPresets = (): GesturePreset[] => [
     down: step("volumeDown", { repeat: true }),
     left: step("previousTrack"),
     right: step("nextTrack"),
-    spacingMm: 6,
   },
 ];
 
@@ -39,6 +38,17 @@ const usesOf = (profile: string, bindings: ButtonBinding[], layer = false) =>
 
 const presetUsesOf = (profiles: ProfileSummary[]) =>
   profiles.flatMap((p) => [...usesOf(p.id, p.bindings), ...usesOf(p.id, p.layer.bindings, true)]);
+
+const roseUsesOf = (profiles: ProfileSummary[]) =>
+  profiles.flatMap((p) =>
+    [...p.bindings.map((b) => ({ b, layer: false })), ...p.layer.bindings.map((b) => ({ b, layer: true }))]
+      .filter(({ b }) => b.mode === "rose" && b.menu)
+      .map(({ b, layer }) => ({ menu: b.menu!, profile: p.id, button: b.button, ...(layer && { layer }) })),
+  );
+
+/** Every action a rose's options and folders run, leaving out pass-through options. */
+export const roseActions = (items: RoseItem[]): ButtonAction[] =>
+  items.flatMap((item) => (item.passThrough ? [] : item.items ? roseActions(item.items) : [item.action]));
 
 const SCROLL: ThumbWheelSettings = { mode: "scroll", speed: 100, inverted: false };
 
@@ -102,7 +112,7 @@ const editedProfile = (state: AgentState, params: Record<string, unknown>) => (p
 function editProfile(state: AgentState, id: string, change: (p: ProfileSummary) => ProfileSummary): AgentState {
   if (!state.profiles.some((p) => p.id === id)) throw new Error("That profile was deleted.");
   const profiles = state.profiles.map((p) => (p.id === id ? change(p) : p));
-  return withRunning({ ...state, profiles, presetUses: presetUsesOf(profiles) });
+  return withRunning({ ...state, profiles, presetUses: presetUsesOf(profiles), roseUses: roseUsesOf(profiles) });
 }
 
 const switchable = (p: ProfileSummary) => p.programs.length === 0;
@@ -125,7 +135,7 @@ const MACROS: Macro[] = [
 function withMacroUses(state: AgentState): AgentState {
   const ran = (actions: (ButtonAction | null | undefined)[]) =>
     actions.filter((a): a is ButtonAction => a?.type === "macro" && !!a.macro).map((a) => a.macro!);
-  const steps = (p: GesturePreset) => pathRows(p).map((row) => actionOf(row.step));
+  const steps = (p: GesturePreset) => DIRECTIONS.map((d) => p[d]);
   const inLayer = (profile: string, bindings: ButtonBinding[], wheel: ThumbWheelSettings | null, layer: boolean): MacroUse[] => [
     ...bindings.flatMap((b) =>
       ran([b.action, b.doubleClick, b.tripleClick]).map((macro) => ({ macro, profile, button: b.button, ...(layer && { layer }) })),
@@ -138,6 +148,7 @@ function withMacroUses(state: AgentState): AgentState {
       ...inLayer(p.id, p.layer.bindings, p.layer.thumbWheel, true),
     ]),
     ...state.gesturePresets.flatMap((p) => ran(steps(p)).map((macro) => ({ macro, preset: p.id }))),
+    ...state.roseMenus.flatMap((m) => ran(roseActions(m.items)).map((macro) => ({ macro, rose: m.id }))),
   ];
   const seen = new Set<string>();
   return { ...state, macroUses: uses.filter((u) => !seen.has(JSON.stringify(u)) && !!seen.add(JSON.stringify(u))) };
@@ -151,6 +162,33 @@ export function previewState(): AgentState {
     { button: "back", mode: "action", action: { type: "macro", macro: "snapleft" } },
     { button: "gesture", mode: "gesture", action: { type: "press", keys: ["ControlLeft", "KeyC"] }, preset: "tiling" },
     { button: "haptic", mode: "action", action: { type: "layer", layer: "momentary" } },
+    { button: "smartshift", mode: "rose", action: { type: "none" }, menu: "tools" },
+  ];
+  const option = (id: string, more: Partial<RoseItem> = {}): RoseItem => ({ action: step(id), ...more });
+  const roseMenus: RoseMenu[] = [
+    {
+      id: "tools",
+      name: "Quick tools",
+      items: [
+        option("copy", { icon: "copy", iconPath: roseIconPath("copy") }),
+        option("paste", { icon: "clipboard-text", iconPath: roseIconPath("clipboard-text") }),
+        {
+          action: { type: "none" },
+          label: "Windows",
+          icon: "squares-four",
+          iconPath: roseIconPath("squares-four"),
+          items: [
+            option("taskView"),
+            option("showDesktop"),
+            { action: { type: "none" }, label: "Desktops", items: [option("desktopLeft"), option("desktopRight")] },
+            option("minimizeWindow"),
+          ],
+        },
+        option("screenshot"),
+        option("undo"),
+        { action: { type: "macro", macro: "signoff" } },
+      ],
+    },
   ];
   const profiles = [
     profile("default", "Default", null, {
@@ -163,7 +201,12 @@ export function previewState(): AgentState {
         thumbWheel: { mode: "actions", speed: 100, inverted: false, left: { type: "system", system: "zoomOut" }, right: { type: "system", system: "zoomIn" } },
       },
     }),
-    profile("work", "Work", "briefcase", { bindings: [{ button: "smartshift", mode: "action", action: { type: "macro", macro: "shot" } }] }),
+    profile("work", "Work", "briefcase", {
+      bindings: [
+        { button: "smartshift", mode: "action", action: { type: "macro", macro: "shot" } },
+        { button: "back", mode: "inherit" },
+      ],
+    }),
     profile("games", "Games", "game-controller", {
       bindings: [{ button: "gesture", mode: "gesture", action: { type: "none" }, preset: "desktops" }],
     }),
@@ -188,12 +231,14 @@ export function previewState(): AgentState {
         name: "Window tiling",
         up: { type: "press", keys: ["MetaLeft", "ArrowUp"] },
         down: { type: "press", keys: ["MetaLeft", "ArrowDown"] },
-        left: { ...NONE, left: step("desktopLeft") },
-        right: { ...NONE, right: { ...NONE, up: { type: "press", keys: ["MetaLeft", "ArrowRight"] }, down: step("desktopRight") } },
-        spacingMm: 6,
+        left: { type: "press", keys: ["MetaLeft", "ArrowLeft"] },
+        right: { type: "press", keys: ["MetaLeft", "ArrowRight"] },
       },
     ],
     presetUses: presetUsesOf(profiles),
+    roseMenus,
+    roseUses: roseUsesOf(profiles),
+    baseProfile: "default",
     macros: MACROS,
     macroUses: [],
     bindings,
@@ -262,6 +307,8 @@ const MACRO_USERS = new Set([
   "setThumbWheel",
   "setGesturePreset",
   "deleteGesturePreset",
+  "setRoseMenu",
+  "deleteRoseMenu",
   "setMacro",
   "deleteMacro",
   "createProfile",
@@ -300,6 +347,13 @@ function apply(state: AgentState, method: string, params: Record<string, unknown
       const gesturePresets = known ? state.gesturePresets.map((p) => (p.id === preset.id ? preset : p)) : [...state.gesturePresets, preset];
       return { ...state, gesturePresets };
     }
+    case "setRoseMenu": {
+      const menu = params.menu as RoseMenu;
+      const known = state.roseMenus.some((m) => m.id === menu.id);
+      return { ...state, roseMenus: known ? state.roseMenus.map((m) => (m.id === menu.id ? menu : m)) : [...state.roseMenus, menu] };
+    }
+    case "deleteRoseMenu":
+      return { ...state, roseMenus: state.roseMenus.filter((m) => m.id !== params.id) };
     case "setMacro": {
       const macro = params.macro as Macro;
       const known = state.macros.some((m) => m.id === macro.id);
@@ -348,7 +402,7 @@ function apply(state: AgentState, method: string, params: Record<string, unknown
         ? { ...structuredClone(source), id, name: params.name as string, icon, programs: [] }
         : profile(id, params.name as string, icon);
       const profiles = [...state.profiles, created];
-      return withRunning({ ...state, profiles, presetUses: presetUsesOf(profiles), selectedProfile: id, activeProfile: id });
+      return withRunning({ ...state, profiles, presetUses: presetUsesOf(profiles), roseUses: roseUsesOf(profiles), selectedProfile: id, activeProfile: id });
     }
     case "setProfileIcon":
       return { ...state, profiles: state.profiles.map((p) => (p.id === params.id ? { ...p, icon: params.icon as string | null } : p)) };
@@ -360,7 +414,16 @@ function apply(state: AgentState, method: string, params: Record<string, unknown
       if (!profiles.some(switchable)) throw new Error("Keep at least one profile without programs; it runs for every other program.");
       const chosen = state.selectedProfile === params.id ? profiles.find(switchable)!.id : state.selectedProfile;
       const running = state.activeProfile === params.id ? chosen : state.activeProfile;
-      return withRunning({ ...state, profiles, presetUses: presetUsesOf(profiles), selectedProfile: chosen, activeProfile: running });
+      const baseProfile = profiles.some((p) => p.id === "default") ? "default" : profiles[0]!.id;
+      return withRunning({
+        ...state,
+        profiles,
+        baseProfile,
+        presetUses: presetUsesOf(profiles),
+        roseUses: roseUsesOf(profiles),
+        selectedProfile: chosen,
+        activeProfile: running,
+      });
     }
     case "setHostName": {
       const hosts = device.hosts!;

@@ -1,5 +1,6 @@
 <template>
   <GesturePresets v-if="page === 'gestures'" />
+  <RoseMenusPage v-else-if="page === 'roses'" />
   <MacrosPage v-else-if="page === 'macros'" />
   <FitStage v-else-if="device" :width="STAGE.width" :height="STAGE.height">
     <!-- The layer being edited. The drawing starts lower than this, so it sits in the space above it. -->
@@ -153,7 +154,8 @@
               :binding="bindingFor(selected.button.id)"
               :inherited="second ? (mainBindingFor(selected.button.id) ?? null) : undefined"
               :apply="apply"
-              @open-presets="(id) => goTo('gestures', id)" />
+              @open-presets="(id) => goTo('gestures', id)"
+              @open-roses="(id) => goTo('roses', id)" />
             <HapticSettings v-if="selected.control.id === 'haptic'" :device="device" />
           </template>
         </UiScrollArea>
@@ -246,7 +248,13 @@ const hoveredId = ref<ControlId | null>(null);
 const { page, goTo } = usePage();
 
 const LABELS: Partial<Record<ControlId, string>> = BUTTON_LABELS;
-const presets = useGesturePresets();
+const roses = useRoseMenus();
+
+/** What the base profile does with a button in the layer shown, which an `inherit` binding runs. */
+function inheritedBinding(button: string) {
+  const base = state.value?.profiles.find((p) => p.id === state.value?.baseProfile);
+  return (second.value ? base?.layer.bindings.find((b) => b.button === button) : undefined) ?? base?.bindings.find((b) => b.button === button);
+}
 
 // The controls this mouse has; a button it doesn't have has no row.
 const present = computed(() => {
@@ -391,18 +399,13 @@ function thumbWheelSummary() {
     : `Scroll sideways ${wheel.speed}%${inverted}`;
 }
 
-// "Copy · 2× Task View · Window tiling": the click, what extra clicks run where there's room, then the moves.
 function describe(button: ButtonState) {
   const binding = bindingFor(button.id);
-  if (binding) {
-    const double = hasAction(binding.doubleClick) ? binding.doubleClick : null;
-    const triple = hasAction(binding.tripleClick) ? binding.tripleClick : null;
-    if (binding.mode === "rose") return `Rose menu · ${binding.rose?.items.length ?? 0} options`;
-    const gesture = binding.mode === "gesture" ? (presets.find(binding.preset)?.name ?? "Gestures") : null;
-    const clicks = triple ? ["2×", "3×"] : double ? [gesture ? "2×" : `2× ${describeAction(double)}`] : [];
-    const click = binding.action ?? binding.gesture?.click ?? NOTHING;
-    return [describeAction(click), ...clicks, gesture].filter(Boolean).join(" · ");
+  if (binding?.mode === "inherit") {
+    const followed = inheritedBinding(button.id);
+    return `${describeBinding(binding)} · ${followed ? describeBinding(followed) : (MOUSE_BUTTONS[button.id] ?? "Default")}`;
   }
+  if (binding) return describeBinding(binding);
   if (second.value) return "Same as main layer";
   // Back, forward and middle are named after what they do on their own, so their defaults can say it.
   return MOUSE_BUTTONS[button.id] ?? "Default";
@@ -480,16 +483,18 @@ function flash(buttonId: string | null, label: string) {
   clearTimeout(clearFlash);
   clearFlash = setTimeout(() => (flashed.value = null), 1500);
 }
-watch(lastGesture, (gesture) => {
-  if (!gesture || gesture.phase !== "fire" || !gesture.direction) return;
-  flash(gesture.button, gesture.path.length > 1 ? pathText(gesture.path) : DIRECTION_LABELS[gesture.direction]!);
-});
-// Names the rose option that just ran; a pass-through one is named as the main layer has it.
+watch(lastGesture, (gesture) => gesture && flash(gesture.button, DIRECTION_LABELS[gesture.direction]!));
+// Names the rose option that just ran, in the folder it's in; a pass-through one is named as the main layer has it.
 watch(lastRose, (event) => {
   if (!event?.ran || event.option === null) return;
-  const own = bindingFor(event.button ?? "")?.rose?.items[event.option];
-  const item = own?.passThrough ? mainBindingFor(event.button ?? "")?.rose?.items[event.option] : own;
-  flash(event.button, item ? item.label || describeAction(item.action) : `Option ${event.option + 1}`);
+  const button = event.button ?? "";
+  const shown = (binding: ButtonBinding | undefined) => {
+    const items = binding?.mode === "rose" ? roses.find(binding.menu)?.items : undefined;
+    return items ? roseLevel(items, event.path)?.[event.option!] : undefined;
+  };
+  const own = shown(bindingFor(button));
+  const item = own?.passThrough ? shown(mainBindingFor(button)) : own;
+  flash(event.button, item ? describeRoseItem(item) : `Option ${event.option + 1}`);
 });
 // A plain button's single click is just a press, which would flash on every use.
 watch(lastClick, (click) => {

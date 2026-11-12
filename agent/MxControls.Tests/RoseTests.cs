@@ -112,12 +112,14 @@ public class RoseTests
         ]);
         var shown = second.Over(main);
         Assert.Equal("Paste", shown.Items[0].Label);
-        Assert.Same(main.Items[1], shown.Items[1]);
-        Assert.Same(main.Items[2], shown.Items[2]);
+        Assert.Equal(main.Items[1].Label, shown.Items[1].Label);
+        Assert.Equal(main.Items[2].Label, shown.Items[2].Label);
+        Assert.True(shown.Items[1].FromMain);
+        Assert.False(shown.Items[0].FromMain);
         // The main rose has no fourth option, so that place is empty.
         Assert.False(shown.Items[3].Action.IsSet);
         Assert.All(second.Over(null).Items.Skip(1), item => Assert.False(item.Action.IsSet));
-        Assert.Same(main, main.Over(null));
+        Assert.Equal(main.Items.Select(i => i.Label), main.Over(null).Items.Select(i => i.Label));
     }
 
     [Fact]
@@ -126,7 +128,7 @@ public class RoseTests
         ButtonBinding Rose(RoseMenu? menu, ButtonAction? click = null) => new("gesture", ButtonBinding.RoseMode, click, Rose: menu);
         Assert.Null(Rose(Menu(2)).Problem(Platform));
         Assert.Null(Rose(Menu(8), Press("KeyV")).Problem(Platform));
-        Assert.Contains("needs its options", Rose(null).Problem(Platform));
+        Assert.Contains("needs a rose menu", Rose(null).Problem(Platform));
         Assert.Contains("2 to 8", Rose(Menu(1)).Problem(Platform));
         Assert.Contains("2 to 8", Rose(Menu(9)).Problem(Platform));
         Assert.Contains("taps keys", Rose(new([new(new(ActionTypes.Hold, ["KeyC"])), RoseItem.Empty])).Problem(Platform));

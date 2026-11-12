@@ -14,7 +14,12 @@ public static class Protocol
 {
     public const string PipeName = "mx-controls-agent";
 
-    public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { TypeInfoResolver = AgentJson.Default };
+    /// <summary>Rose folders nest as deep as people like, each a few levels of JSON, so the usual limit of 64 is raised.</summary>
+    public const int MaxDepth = 512;
+
+    public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { TypeInfoResolver = AgentJson.Default, MaxDepth = MaxDepth };
+
+    public static readonly JsonDocumentOptions Document = new() { MaxDepth = MaxDepth };
 }
 
 /// <param name="Bindings">The running profile's main bindings.</param>
@@ -24,7 +29,10 @@ public static class Protocol
 /// <param name="GesturePresets">Every preset: the built-in ones, as edited if they have been, then the user's own.</param>
 /// <param name="BuiltInPresets">The built-in presets as they come, so a client can tell an edited one and reset it.</param>
 /// <param name="PresetUses">Which buttons follow which preset, in every profile.</param>
-/// <param name="MacroUses">Which buttons, thumb wheels and gesture presets run which macro.</param>
+/// <param name="MacroUses">Which buttons, thumb wheels, gesture presets and rose menus run which macro.</param>
+/// <param name="RoseMenus">The library's rose menus, which buttons show by ID.</param>
+/// <param name="RoseUses">Which buttons show which rose menu, in every profile.</param>
+/// <param name="BaseProfile">The profile whose buttons others can follow with an <c>inherit</c> binding.</param>
 /// <param name="SelectedProfile">The profile chosen by hand or a <c>profile</c> action; it never follows programs.</param>
 /// <param name="LayerActive">Whether the running profile's second layer is on.</param>
 /// <param name="FollowsPrograms">Whether this platform can tell which program is in front, so profiles can follow programs.</param>
@@ -39,14 +47,22 @@ public sealed record AgentState(
     long Revision, int MultiClickMs, IReadOnlyList<GesturePreset> GesturePresets, IReadOnlyList<GesturePreset> BuiltInPresets,
     IReadOnlyList<PresetUse> PresetUses, IReadOnlyList<Macro> Macros, IReadOnlyList<MacroUse> MacroUses,
     string SelectedProfile, bool LayerActive, bool FollowsPrograms, string? AgentHash,
-    IReadOnlyList<HostShortcut> HostShortcuts, IReadOnlyList<string> SystemActions, bool OpensApps, bool RunsShortcuts);
+    IReadOnlyList<HostShortcut> HostShortcuts, IReadOnlyList<string> SystemActions, bool OpensApps, bool RunsShortcuts,
+    IReadOnlyList<RoseMenu> RoseMenus, IReadOnlyList<RoseUse> RoseUses, string BaseProfile);
 
 /// <param name="Layer">Whether the button is bound in the profile's second layer rather than its main one.</param>
 public sealed record PresetUse(string Preset, string Profile, string Button, bool Layer = false);
 
-/// <summary>Where a macro runs: a button or the thumb wheel in a profile, or a step of a gesture preset.</summary>
+/// <param name="Layer">Whether the button shows it in the profile's second layer rather than its main one.</param>
+public sealed record RoseUse(string Menu, string Profile, string Button, bool Layer = false);
+
+/// <summary>
+/// Where a macro runs: a button or the thumb wheel in a profile, a direction of a gesture preset, or an option of a
+/// rose menu.
+/// </summary>
 /// <param name="Layer">Whether it's in the profile's second layer rather than its main one.</param>
-public sealed record MacroUse(string Macro, string? Profile = null, string? Button = null, string? Preset = null, bool Layer = false);
+public sealed record MacroUse(
+    string Macro, string? Profile = null, string? Button = null, string? Preset = null, bool Layer = false, string? Rose = null);
 
 /// <summary>Everything a profile holds, so a client can show and edit one that isn't running.</summary>
 /// <param name="Programs">The programs that run it while they're in front; empty for a profile chosen by hand.</param>
@@ -80,14 +96,13 @@ public sealed record ButtonState(string Id, string Name, int Cid, bool DivertedE
 
 public sealed record ButtonEvent(string? Button, int Cid, bool Down);
 
-/// <param name="Direction">The last of <paramref name="Path"/>, or null once a path is backed out of.</param>
-/// <param name="Path">"up", "down", "left" or "right", one per step; clicks come as <see cref="ClickEvent"/>.</param>
-/// <param name="Phase">"fire" when the path ran, "step" when it changed without running.</param>
-public sealed record GestureEvent(string? Button, string? Direction, IReadOnlyList<string> Path, string Phase);
+/// <param name="Direction">"up", "down", "left" or "right", as it ran; clicks come as <see cref="ClickEvent"/>.</param>
+public sealed record GestureEvent(string? Button, string Direction);
 
-/// <param name="Option">The highlighted rose option's index, or null back in the middle.</param>
+/// <param name="Option">The highlighted option's index in the ring showing, or null back in its middle.</param>
 /// <param name="Ran">Whether the option ran, as the button came up on it.</param>
-public sealed record RoseEvent(string? Button, int? Option, bool Ran);
+/// <param name="Path">The folders open, by index from the rose's own ring; empty there.</param>
+public sealed record RoseEvent(string? Button, int? Option, bool Ran, IReadOnlyList<int> Path);
 
 /// <param name="Count">1, 2 or 3 for a single, double or triple click.</param>
 public sealed record ClickEvent(string? Button, int Count);
@@ -99,7 +114,7 @@ public sealed record KeyEvent(string? Code, bool Down);
 public sealed record KeyCaptureEvent(bool Active);
 
 /// <summary>Source-generated serializers, so the agent runs without reflection under NativeAOT.</summary>
-[JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
+[JsonSourceGenerationOptions(JsonSerializerDefaults.Web, MaxDepth = Protocol.MaxDepth)]
 [JsonSerializable(typeof(AgentState))]
 [JsonSerializable(typeof(ButtonEvent))]
 [JsonSerializable(typeof(GestureEvent))]
@@ -110,6 +125,7 @@ public sealed record KeyCaptureEvent(bool Active);
 [JsonSerializable(typeof(AgentSettings))]
 [JsonSerializable(typeof(ButtonBinding[]))]
 [JsonSerializable(typeof(GesturePreset))]
+[JsonSerializable(typeof(RoseMenu))]
 [JsonSerializable(typeof(Macro))]
 [JsonSerializable(typeof(ThumbWheelSettings))]
 [JsonSerializable(typeof(ProgramInfo[]))]

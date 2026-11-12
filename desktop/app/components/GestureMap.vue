@@ -7,15 +7,15 @@
       type="button"
       :aria-label="`Edit ${DIRECTION_LABELS[direction]}: ${summary(direction)}`"
       :title="`${summary(direction)} · ${movementHint(direction)}`"
-      :aria-pressed="selected?.[0] === direction"
+      :aria-pressed="selected === direction"
       class="flex h-21 min-w-0 flex-col items-center justify-center gap-0.5 rounded-xl border px-1.5 py-1 text-center transition-colors"
       :class="[
         `gesture-map-${direction}`,
-        selected?.[0] === direction ? 'border-accent bg-accent/8' : 'border-line bg-field hover:border-ink-3',
+        selected === direction ? 'border-accent bg-accent/8' : 'border-line bg-field hover:border-ink-3',
       ]"
-      @click="emit('select', [direction])"
+      @click="emit('select', direction)"
       @keydown="onKey">
-      <span class="flex items-center gap-1 whitespace-nowrap text-[11px] font-semibold" :class="selected?.[0] === direction ? 'text-accent' : 'text-ink-2'">
+      <span class="flex items-center gap-1 whitespace-nowrap text-[11px] font-semibold" :class="selected === direction ? 'text-accent' : 'text-ink-2'">
         <component :is="arrows[direction]" class="size-4 shrink-0" weight="bold" aria-hidden="true" />Move {{ direction }}
       </span>
       <span class="line-clamp-2 h-8 w-full shrink-0 text-xs leading-4" :class="preset[direction].type === 'none' && 'text-ink-3'">{{ summary(direction) }}</span>
@@ -32,8 +32,8 @@
 import { PhArrowUp, PhArrowDown, PhArrowLeft, PhArrowRight, PhMouseSimple } from "@phosphor-icons/vue";
 import type { Direction, GesturePreset } from "~/composables/useAgent";
 
-const { preset, selected } = defineProps<{ preset: GesturePreset; selected: Direction[] | null }>();
-const emit = defineEmits<{ select: [path: Direction[]] }>();
+const { preset, selected } = defineProps<{ preset: GesturePreset; selected: Direction | null }>();
+const emit = defineEmits<{ select: [direction: Direction] }>();
 const buttons: Partial<Record<Direction, HTMLButtonElement | null>> = {};
 const arrows = { up: PhArrowUp, down: PhArrowDown, left: PhArrowLeft, right: PhArrowRight };
 const ARROWS: Record<string, Direction> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
@@ -41,23 +41,18 @@ function onKey(event: KeyboardEvent) {
   const direction = ARROWS[event.key];
   if (!direction || event.altKey || event.ctrlKey || event.metaKey) return;
   event.preventDefault();
-  emit('select', [direction]);
+  emit('select', direction);
   buttons[direction]?.focus();
 }
-const rows = computed(() => pathRows(preset));
-const extraSteps = (direction: Direction) => rows.value.filter((row) => row.path[0] === direction && row.path.length > 1).length;
 function movementHint(direction: Direction) {
-  const extra = extraSteps(direction);
-  if (extra) return `+ ${extra} ${extra === 1 ? 'step' : 'steps'}`;
   if (preset[direction].repeat) return "Repeats";
   if (preset[direction].type === "hold") return "Keys held";
   return preset[direction].type === "none" ? "Unassigned" : "On movement";
 }
 function summary(direction: Direction) {
-  const step = preset[direction];
-  if (!complete(actionOf(step))) return "Choose an action";
-  if (step.type === "none") return extraSteps(direction) ? "Continue to a step" : "No action";
-  return describeAction(actionOf(step));
+  const action = preset[direction];
+  if (!complete(action)) return "Choose an action";
+  return action.type === "none" ? "No action" : describeAction(action);
 }
 </script>
 

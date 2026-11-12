@@ -72,7 +72,7 @@ import type { ButtonAction, ShortcutInfo } from "~/composables/useAgent";
  * something to open as "open:app", "open:url" or "open:path", or one of the custom choices: "shortcut" (an inline
  * combination), "hold" (keys held down), and "none". `modelValue` is the ID of the choice shown.
  */
-const { modelValue, label, allowHold = true, defaultLabel, layers = "none", profiles = false, currentName } = defineProps<{
+const { modelValue, label, allowHold = true, defaultLabel, inheritLabel, layers = "none", profiles = false, currentName } = defineProps<{
   modelValue: string;
   /** The name of the app or Shortcut chosen, for a choice the menu can't list right now. */
   currentName?: string;
@@ -80,6 +80,8 @@ const { modelValue, label, allowHold = true, defaultLabel, layers = "none", prof
   allowHold?: boolean;
   /** Offers "default", what the button does without MX Studio, under this name. */
   defaultLabel?: string;
+  /** Offers "inherit", whatever the base profile does with the button, under this name. */
+  inheritLabel?: string;
   /** Which second-layer actions fit here: holding it needs a press that lasts. */
   layers?: "hold" | "toggle" | "none";
   /** Offers switching to each profile that follows no programs. */
@@ -125,6 +127,8 @@ const choices = computed(() => {
   const all: (Choice & { group: string })[] = defaultLabel
     ? [{ id: "default", group: "This button", label: defaultLabel, hint: "default", keywords: "reset own" }]
     : [];
+  if (inheritLabel)
+    all.push({ id: "inherit", group: "This button", label: inheritLabel, hint: "Follows it", keywords: "inherit base default profile same follow" });
   for (const choice of KEYBOARD) if (allowHold || choice.id !== "hold") all.push({ ...choice, group: "Keyboard" });
   all.push(...PRESETS.filter(presetAvailable).map((preset) => ({
     id: preset.id,

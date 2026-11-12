@@ -5,6 +5,7 @@
       :label="label"
       :allow-hold="allowHold"
       :default-label="defaultLabel"
+      :inherit-label="inheritLabel"
       :layers="layers"
       :profiles="profiles"
       :current-name="modelValue?.name ?? undefined"
@@ -72,6 +73,8 @@ const {
   allowRepeat = true,
   repeatLabel = "Repeat while held",
   defaultLabel,
+  inheritLabel,
+  inherits = false,
   layers = "none",
   profiles = false,
 } = defineProps<{
@@ -86,12 +89,16 @@ const {
   repeatLabel?: string;
   /** Offers the button's default, under this name; picking it emits `default`. */
   defaultLabel?: string;
+  /** Offers following the base profile, under this name; picking it emits `inherit`. */
+  inheritLabel?: string;
+  /** The button follows the base profile, so the action shown is that choice rather than `modelValue`. */
+  inherits?: boolean;
   /** Which second-layer actions fit here; holding the layer needs a press that lasts. */
   layers?: "hold" | "toggle" | "none";
   /** Offers switching profiles. */
   profiles?: boolean;
 }>();
-const emit = defineEmits<{ "update:modelValue": [action: ButtonAction]; default: [] }>();
+const emit = defineEmits<{ "update:modelValue": [action: ButtonAction]; default: []; inherit: [] }>();
 
 const capture = useTemplateRef("capture");
 
@@ -101,6 +108,7 @@ const capture = useTemplateRef("capture");
  */
 const custom = ref(false);
 const choice = computed(() => {
+  if (inherits) return "inherit";
   if (!modelValue) return "default";
   if (modelValue.type === "macro") return `macro:${modelValue.macro}`;
   if (modelValue.type === "open") return `open:${openKind(modelValue.open)}`;
@@ -129,6 +137,7 @@ function choose(id: string, name?: string) {
   custom.value = id === "shortcut" || id === "hold";
   justChose.value = id.startsWith("open:");
   if (id === "default") return emit("default");
+  if (id === "inherit") return emit("inherit");
   if (id.startsWith("open:")) {
     const kind = id.slice(5);
     if (modelValue?.type === "open" && openKind(modelValue.open) === kind) return;
@@ -156,10 +165,11 @@ function choose(id: string, name?: string) {
 }
 
 const repeatable = (action: ButtonAction) => ["press", "system", "macro"].includes(action.type);
-const canRepeat = computed(() => !!modelValue && allowRepeat && repeatable(modelValue));
+const canRepeat = computed(() => !inherits && !!modelValue && allowRepeat && repeatable(modelValue));
 const keepRepeat = (action: ButtonAction): ButtonAction =>
   allowRepeat && modelValue?.repeat && repeatable(action) ? { ...action, repeat: true } : action;
 const actionHint = computed(() => {
+  if (inherits) return "Clicks, gestures and roses all come from that profile, and change with it.";
   if (modelValue?.type === "hold") return "Keys stay down until you release the button.";
   if (modelValue?.type === "press") return "One key combination, saved only on this action.";
   if (modelValue?.type === "macro") return "Shared macro. Editing it updates every assignment.";

@@ -83,11 +83,11 @@ public class LayerTests
         Assert.Contains("can toggle the second layer but not hold it", click.Problem(Platform));
         Assert.Null((click with { Action = ToggleLayer }).Problem(Platform));
 
-        var gesture = new GestureActions(Press("KeyC"), GestureStep.Of(HoldLayer), GestureStep.Nothing, GestureStep.Nothing, GestureStep.Of(ToggleLayer));
+        var gesture = new GestureActions(Press("KeyC"), HoldLayer, ButtonAction.Nothing, ButtonAction.Nothing, ToggleLayer);
         Assert.Contains("can toggle the second layer but not hold it",
             new ButtonBinding("gesture", ButtonBinding.GestureMode, Gesture: gesture).Problem(Platform));
         Assert.Null(new ButtonBinding("gesture", ButtonBinding.GestureMode,
-            Gesture: gesture with { Up = GestureStep.Nothing }).Problem(Platform));
+            Gesture: gesture with { Up = ButtonAction.Nothing }).Problem(Platform));
     }
 
     [Fact]
@@ -106,14 +106,6 @@ public class LayerTests
         Assert.Null(new ButtonBinding("back", ButtonBinding.ActionMode, action).Problem(Platform));
         Assert.Contains("needs a profile",
             new ButtonBinding("back", ButtonBinding.ActionMode, action with { Profile = null }).Problem(Platform));
-    }
-
-    [Fact]
-    public void GestureStepsCarryLayerAndProfile()
-    {
-        var step = GestureStep.Of(new ButtonAction(ActionTypes.Profile, Profile: "work"));
-        Assert.Equal("work", step.Action.Profile);
-        Assert.Equal(LayerModes.Toggle, GestureStep.Of(ToggleLayer).Map(a => a).Action.Layer);
     }
 
     [Fact]

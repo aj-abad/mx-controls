@@ -9,14 +9,13 @@ public class BindingTests
     private static readonly FakePlatform Platform = new();
 
     private static ButtonAction Press(params string[] keys) => new(ActionTypes.Press, keys);
-    private static GestureStep Step(params string[] keys) => new(ActionTypes.Press, keys);
 
     [Fact]
     public void AcceptsAnActionAndAGesture()
     {
         Assert.Null(new ButtonBinding("middle", ButtonBinding.ActionMode, Press("ControlLeft", "KeyC")).Problem(Platform));
-        var gesture = new GestureActions(Press("ControlLeft", "KeyC"), Step("ControlLeft", "KeyV"), Step("Delete"),
-            GestureStep.Nothing, new GestureStep(ActionTypes.System, System: SystemActions.TaskView));
+        var gesture = new GestureActions(Press("ControlLeft", "KeyC"), Press("ControlLeft", "KeyV"), Press("Delete"),
+            ButtonAction.Nothing, new ButtonAction(ActionTypes.System, System: SystemActions.TaskView));
         Assert.Null(new ButtonBinding("gesture", ButtonBinding.GestureMode, Gesture: gesture).Problem(Platform));
     }
 
@@ -114,7 +113,7 @@ public class BindingTests
     }
 
     private static GestureActions Gesture(ButtonAction? doubleClick = null, ButtonAction? tripleClick = null) =>
-        new(Press("ControlLeft", "KeyC"), GestureStep.Nothing, GestureStep.Nothing, GestureStep.Nothing, GestureStep.Nothing,
+        new(Press("ControlLeft", "KeyC"), ButtonAction.Nothing, ButtonAction.Nothing, ButtonAction.Nothing, ButtonAction.Nothing,
             doubleClick, tripleClick);
 
     [Fact]
@@ -188,73 +187,38 @@ public class BindingTests
         Assert.Contains("\"multiClickMs\":300", json);
     }
 
-    private static GestureActions Flat(GestureStep right) =>
-        new(Press("KeyC"), GestureStep.Nothing, GestureStep.Nothing, GestureStep.Nothing, right);
-
-    private static string? Problem(GestureStep right) =>
-        new ButtonBinding("gesture", ButtonBinding.GestureMode, Gesture: Flat(right)).Problem(Platform);
-
-    private static GestureStep Junction(GestureStep? up = null, GestureStep? down = null, GestureStep? left = null, GestureStep? right = null) =>
-        new(ActionTypes.None, Up: up, Down: down, Left: left, Right: right);
+    private static string? Problem(ButtonAction right) =>
+        new ButtonBinding("gesture", ButtonBinding.GestureMode,
+            Gesture: new(Press("KeyC"), ButtonAction.Nothing, ButtonAction.Nothing, ButtonAction.Nothing, right)).Problem(Platform);
 
     [Fact]
-    public void AcceptsAPathThatRunsAndTurns()
+    public void ADirectionCanHoldKeysOrRepeatButNotHoldTheLayer()
     {
-        Assert.Null(Problem(Junction(right: Junction(right: Junction(up: Step("KeyC"), down: Junction(right: Step("KeyV")))))));
+        Assert.Null(Problem(new ButtonAction(ActionTypes.Hold, ["ShiftLeft"])));
+        Assert.Null(Problem(Press("KeyC") with { Repeat = true }));
+        Assert.Null(Problem(new ButtonAction(ActionTypes.Layer, Layer: LayerModes.Toggle)));
+        Assert.Contains("not hold it", Problem(new ButtonAction(ActionTypes.Layer, Layer: LayerModes.Momentary)));
+        Assert.Contains("can't send the key 'F99'", Problem(Press("F99")));
     }
 
     [Fact]
-    public void ExplainsWhatIsWrongWithAPath()
-    {
-        Assert.Contains("back the way", Problem(Junction(left: Step("KeyC"))));
-        Assert.Contains("not both", Problem(Junction(right: Step("KeyC"), up: Step("KeyV"))));
-        Assert.Contains("at most 3 steps", Problem(Junction(right: Junction(right: Junction(right: Step("KeyC"))))));
-        Assert.Contains("at most 2 times", Problem(Junction(up: Junction(right: Junction(down: Step("KeyC"))))));
-        Assert.Contains("can't send the key 'F99'", Problem(Junction(right: Step("F99"))));
-    }
-
-    [Fact]
-    public void OnlyAFirstDirectionWithNothingBeyondCanHold()
-    {
-        Assert.Contains("can hold keys", Problem(new GestureStep(ActionTypes.Hold, ["ShiftLeft"], Right: Step("KeyC"))));
-        Assert.Contains("can hold keys", Problem(Junction(right: new GestureStep(ActionTypes.Hold, ["ShiftLeft"]))));
-    }
-
-    [Fact]
-    public void ARepeatingStepIsTheLastInItsDirection()
-    {
-        Assert.Null(Problem(Step("KeyC") with { Repeat = true }));
-        Assert.Null(Problem(Junction(right: Step("KeyC") with { Repeat = true })));
-        Assert.Null(Problem(Junction(up: Step("KeyC") with { Repeat = true })));
-        // It can still turn, but not go further.
-        Assert.Null(Problem(Step("KeyC") with { Repeat = true, Up = Step("KeyV") }));
-        Assert.Contains("last in its direction", Problem(Step("KeyC") with { Repeat = true, Right = Step("KeyV") }));
-        Assert.Contains("last in its direction", Problem(Junction(right: Step("KeyC") with { Repeat = true, Right = Step("KeyV") })));
-    }
-
-    [Fact]
-    public void TheSpacingStaysInRange()
-    {
-        var binding = new ButtonBinding("gesture", ButtonBinding.GestureMode, Gesture: Flat(GestureStep.Nothing) with { SpacingMm = 20 });
-        Assert.Contains("spacing", binding.Problem(Platform));
-    }
-
-    [Fact]
-    public void PathsRoundTripAsNestedSteps()
+    public void GesturesWithStepsBeyondTheFirstLoadAsTheirFirstSteps()
     {
         const string json = """
             { "button": "gesture", "mode": "gesture", "gesture": {
-              "click": { "type": "none" }, "up": { "type": "none" }, "down": { "type": "none" }, "left": { "type": "none" },
+              "click": { "type": "none" }, "up": { "type": "press", "keys": ["KeyC"], "right": { "type": "press", "keys": ["KeyV"] } },
+              "down": { "type": "none" }, "left": { "type": "none" },
               "right": { "type": "none", "right": { "type": "press", "keys": ["KeyC"] } }, "spacingMm": 8 } }
             """;
         var binding = JsonSerializer.Deserialize<ButtonBinding>(json, Protocol.Json)!;
-        Assert.Equal(["KeyC"], binding.Gesture!.Right.Right!.Keys);
-        Assert.Equal(8, binding.Gesture.SpacingMm);
+        Assert.Equal(["KeyC"], binding.Gesture!.Up.Keys);
+        Assert.False(binding.Gesture.Right.IsSet);
         Assert.Null(binding.Problem(Platform));
+        Assert.DoesNotContain("\"right\":{\"type\":\"none\",\"right\"", JsonSerializer.Serialize(binding, Protocol.Json));
     }
 
-    private static readonly GesturePreset Copying = new("copying", "Copying", Step("ControlLeft", "KeyC"), Step("ControlLeft", "KeyV"),
-        GestureStep.Nothing, GestureStep.Nothing);
+    private static readonly GesturePreset Copying = new("copying", "Copying", Press("ControlLeft", "KeyC"), Press("ControlLeft", "KeyV"),
+        ButtonAction.Nothing, ButtonAction.Nothing);
 
     [Fact]
     public void AButtonFollowsItsPresetWithItsOwnClicks()
@@ -262,7 +226,7 @@ public class BindingTests
         var binding = new ButtonBinding("gesture", ButtonBinding.GestureMode, Press("Delete"), DoubleClick: Press("KeyV"), Preset: "copying");
         Assert.Null(binding.Problem(Platform));
 
-        var resolved = binding.Resolve(id => id == "copying" ? Copying : null);
+        var resolved = binding.Resolve(id => id == "copying" ? Copying : null, _ => null);
         Assert.Equal(["ControlLeft", "KeyC"], resolved.Gesture!.Up.Keys);
         Assert.Equal(["Delete"], resolved.Gesture.Click.Keys);
         Assert.Equal(2, resolved.Clicks.Most);
@@ -272,7 +236,7 @@ public class BindingTests
     [Fact]
     public void AButtonWhosePresetIsGoneRunsJustItsClicks()
     {
-        var resolved = new ButtonBinding("gesture", ButtonBinding.GestureMode, Press("Delete"), Preset: "gone").Resolve(_ => null);
+        var resolved = new ButtonBinding("gesture", ButtonBinding.GestureMode, Press("Delete"), Preset: "gone").Resolve(_ => null, _ => null);
         Assert.False(resolved.IsGesture);
         Assert.Equal(["Delete"], resolved.Clicks.Single.Keys);
     }
@@ -286,8 +250,8 @@ public class BindingTests
     [Fact]
     public void GesturesFromBeforePresetsFollowOneAfterMigrating()
     {
-        var gesture = new GestureActions(Press("KeyC"), Step("ControlLeft", "KeyC"), Step("ControlLeft", "KeyV"),
-            GestureStep.Nothing, GestureStep.Nothing, DoubleClick: Press("Delete"));
+        var gesture = new GestureActions(Press("KeyC"), Press("ControlLeft", "KeyC"), Press("ControlLeft", "KeyV"),
+            ButtonAction.Nothing, ButtonAction.Nothing, DoubleClick: Press("Delete"));
         var work = new Profile("work", "Work", [new ButtonBinding("gesture", ButtonBinding.GestureMode, Gesture: gesture)]);
         var game = new Profile("game", "Game", [new ButtonBinding("middle", ButtonBinding.GestureMode, Gesture: gesture with { Click = Press("KeyV") })]);
         var settings = new AgentSettings(Profiles: [work, game], ActiveProfile: "work").Migrated();
@@ -320,7 +284,7 @@ public class BindingTests
     [Fact]
     public void AnEditedBuiltInPresetReplacesTheOriginal()
     {
-        var desktops = PresetLibrary.BuiltIn[0] with { Up = Step("KeyC") };
+        var desktops = PresetLibrary.BuiltIn[0] with { Up = Press("KeyC") };
         var settings = new AgentSettings(GesturePresets: [desktops, Copying]);
         Assert.Equal(PresetLibrary.BuiltIn.Count + 1, settings.AllPresets.Count);
         Assert.Equal(["KeyC"], settings.FindPreset(desktops.Id)!.Up.Keys);

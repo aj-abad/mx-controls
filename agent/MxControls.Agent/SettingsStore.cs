@@ -70,11 +70,12 @@ public sealed record HostShortcut(int Host, IReadOnlyList<string> Keys);
 /// </param>
 /// <param name="Macros">The saved macros, which <c>macro</c> actions run by ID. They belong to no profile.</param>
 /// <param name="HostShortcuts">Keys for the Easy-Switch channels. They belong to no profile.</param>
+/// <param name="RoseMenus">The rose menus buttons show by ID. They belong to no profile.</param>
 public sealed record AgentSettings(
     IReadOnlyList<ButtonBinding>? Bindings = null, bool StartAtLogin = true, IReadOnlyList<LegacyMapping>? Mappings = null,
     IReadOnlyList<Profile>? Profiles = null, string? ActiveProfile = null, int MultiClickMs = ClickCounter.DefaultWindowMs,
     IReadOnlyList<GesturePreset>? GesturePresets = null, IReadOnlyList<Macro>? Macros = null, bool? ScrollInverted = null,
-    IReadOnlyList<HostShortcut>? HostShortcuts = null)
+    IReadOnlyList<HostShortcut>? HostShortcuts = null, IReadOnlyList<RoseMenu>? RoseMenus = null)
 {
     public const int MinMultiClickMs = 150;
     public const int MaxMultiClickMs = 600;
@@ -105,6 +106,13 @@ public sealed record AgentSettings(
 
     public Profile? FindProfile(string id) => AllProfiles.FirstOrDefault(p => p.Id == id);
 
+    /// <summary>
+    /// The profile others' <c>inherit</c> bindings follow: the one every install starts with, or the first if that
+    /// one was deleted.
+    /// </summary>
+    [JsonIgnore]
+    public Profile BaseProfile => FindProfile(Profile.DefaultId) ?? AllProfiles[0];
+
     /// <summary>The built-in presets, as edited if they have been, then the user's own.</summary>
     [JsonIgnore]
     public IReadOnlyList<GesturePreset> AllPresets
@@ -122,12 +130,32 @@ public sealed record AgentSettings(
 
     public GesturePreset? FindPreset(string id) => AllPresets.FirstOrDefault(p => p.Id == id);
 
-    /// <summary>Bindings as the engine runs them, with their presets' moves filled in.</summary>
-    public IEnumerable<ButtonBinding> Resolved(IEnumerable<ButtonBinding> bindings) => bindings.Select(b => b.Resolve(FindPreset));
+    public RoseMenu? FindRose(string id) => RoseMenus?.FirstOrDefault(m => m.Id == id);
 
-    /// <summary>The active profile's bindings as the engine runs them.</summary>
-    [JsonIgnore]
-    public IEnumerable<ButtonBinding> ResolvedBindings => Resolved(AllBindings);
+    /// <summary>
+    /// One layer of a profile's bindings as the engine runs them: each <c>inherit</c> binding swapped for the base
+    /// profile's, and presets' moves and roses' options filled in from the libraries.
+    /// </summary>
+    public IEnumerable<ButtonBinding> Resolved(Profile profile, bool secondLayer) =>
+        (secondLayer ? profile.SecondLayer.AllBindings : profile.AllBindings)
+            .Select(b => b.Inherits ? Inherited(profile, b.Button, secondLayer) : b)
+            .OfType<ButtonBinding>()
+            .Select(b => b.Resolve(FindPreset, FindRose));
+
+    /// <summary>
+    /// What the base profile does with a button in a layer: its second layer's binding, or else its main one as
+    /// its second layer runs it. Null, leaving the button unbound, where it does nothing of its own.
+    /// </summary>
+    public ButtonBinding? Inherited(Profile profile, string button, bool secondLayer)
+    {
+        var source = BaseProfile;
+        if (source.Id == profile.Id)
+            return null;
+        ButtonBinding? Find(IReadOnlyList<ButtonBinding> bindings) =>
+            bindings.FirstOrDefault(b => string.Equals(b.Button, button, StringComparison.OrdinalIgnoreCase));
+        var found = (secondLayer ? Find(source.SecondLayer.AllBindings) : null) ?? Find(source.AllBindings);
+        return found is { Inherits: false } ? found with { Button = button } : null;
+    }
 
     /// <summary>Replaces the active profile with what <paramref name="change"/> makes of it.</summary>
     public AgentSettings WithActive(Func<Profile, Profile> change)

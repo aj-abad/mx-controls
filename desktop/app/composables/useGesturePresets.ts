@@ -59,11 +59,10 @@ export function useGesturePresets() {
 
   const blank = (): Omit<GesturePreset, "id"> => ({
     name: "New preset",
-    up: NO_STEP,
-    down: NO_STEP,
-    left: NO_STEP,
-    right: NO_STEP,
-    spacingMm: DEFAULT_SPACING_MM,
+    up: NOTHING,
+    down: NOTHING,
+    left: NOTHING,
+    right: NOTHING,
   });
 
   return { presets, find, builtIn, changed, usedBy, buttonLabel, change, discard, create, blank };

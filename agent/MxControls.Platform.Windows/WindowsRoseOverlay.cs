@@ -280,12 +280,24 @@ internal sealed unsafe partial class WindowsRoseOverlay : IRoseOverlay
         bool home = view.Selected is null;
         Fill(home ? Argb(70, 255, 255, 255) : Argb(110, 10, 10, 14), path => Gdip.GdipAddPathEllipse(path, c - inner, c - inner, 2 * inner, 2 * inner));
         Stroke(Argb(home ? 200 : 110, 255, 255, 255), 1.5f * s, path => Gdip.GdipAddPathEllipse(path, c - inner, c - inner, 2 * inner, 2 * inner));
-        float mark = 14 * s, cross = 5 * s, markY = view.SecondLayer ? c - 6 * s : c;
-        Stroke(Argb(home ? 255 : 170, 255, 255, 255), 1.5f * s, path => Gdip.GdipAddPathEllipse(path, c - mark, markY - mark, 2 * mark, 2 * mark));
-        Line(Argb(home ? 255 : 170, 255, 255, 255), 1.6f * s, c - cross, markY - cross, c + cross, markY + cross);
-        Line(Argb(home ? 255 : 170, 255, 255, 255), 1.6f * s, c + cross, markY - cross, c - cross, markY + cross);
-        if (view.SecondLayer)
-            Text("LAYER 2", _smallFont, Argb(230, 120, 190, 255), c - inner, markY + mark + 1 * s, 2 * inner, 14 * s);
+        // In a folder the middle leads back, so it shows a back arrow and the folder's name instead of the cross.
+        bool inFolder = view.Folder is not null;
+        float mark = 14 * s, cross = 5 * s, markY = view.SecondLayer || inFolder ? c - 6 * s : c;
+        uint markColor = Argb(home ? 255 : 170, 255, 255, 255);
+        Stroke(markColor, 1.5f * s, path => Gdip.GdipAddPathEllipse(path, c - mark, markY - mark, 2 * mark, 2 * mark));
+        if (inFolder)
+        {
+            Line(markColor, 1.6f * s, c + 2 * s, markY - cross, c - 3 * s, markY);
+            Line(markColor, 1.6f * s, c - 3 * s, markY, c + 2 * s, markY + cross);
+        }
+        else
+        {
+            Line(markColor, 1.6f * s, c - cross, markY - cross, c + cross, markY + cross);
+            Line(markColor, 1.6f * s, c + cross, markY - cross, c - cross, markY + cross);
+        }
+        if (inFolder || view.SecondLayer)
+            Text(inFolder ? view.Folder!.ToUpperInvariant() : "LAYER 2", _smallFont,
+                view.SecondLayer ? Argb(230, 120, 190, 255) : Argb(220, 255, 255, 255), c - inner, markY + mark + 1 * s, 2 * inner, 14 * s);
 
         float ring = inner + (outer - inner) * 0.54f;
         float chord = MathF.Min(118 * s, 2 * ring * MathF.Sin(MathF.PI / count) - 10 * s);
@@ -306,6 +318,15 @@ internal sealed unsafe partial class WindowsRoseOverlay : IRoseOverlay
             }
             else
                 Text(label, _font, Argb(alpha, 255, 255, 255), x - chord / 2, y - labelHeight / 2, chord, labelHeight);
+            if (slot.Folder)
+            {
+                // A chevron by the rim, pointing out, since pushing on to the rim is what opens it.
+                float ux = (float)Math.Cos(angle), uy = (float)Math.Sin(angle), at = outer - 11 * s;
+                float tipX = c + ux * (at + 3 * s), tipY = c + uy * (at + 3 * s);
+                float baseX = c + ux * (at - 2 * s), baseY = c + uy * (at - 2 * s), arm = 4 * s;
+                Line(Argb(alpha, 255, 255, 255), 1.6f * s, baseX - uy * arm, baseY + ux * arm, tipX, tipY);
+                Line(Argb(alpha, 255, 255, 255), 1.6f * s, baseX + uy * arm, baseY - ux * arm, tipX, tipY);
+            }
             if (slot.Inherited)
             {
                 float dot = 2.5f * s, dotY = icon is not null ? y + iconSize + 9 * s : y + labelHeight / 2 + 4 * s;

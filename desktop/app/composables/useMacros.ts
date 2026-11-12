@@ -23,7 +23,10 @@ export function useMacros() {
   const macros = computed(() => state.value?.macros ?? []);
   const find = (id: string | null | undefined) => (id ? macros.value.find((m) => m.id === id) : undefined);
 
-  /** "Back button · Default" for each button or thumb wheel running it, then "Window tiling" for each gesture preset. */
+  /**
+   * "Back button · Default" for each button or thumb wheel running it, then "Window tiling gesture" for each gesture
+   * preset and "Quick tools rose" for each rose menu.
+   */
   function usedBy(id: string) {
     const profileName = (pid: string) => state.value?.profiles.find((p) => p.id === pid)?.name ?? pid;
     return (state.value?.macroUses ?? [])
@@ -31,7 +34,9 @@ export function useMacros() {
       .map((use) =>
         use.preset
           ? `${presets.find(use.preset)?.name ?? "A gesture preset"} gesture`
-          : `${use.button === "thumbwheel" ? "Thumb wheel" : presets.buttonLabel(use.button ?? "")} · ${profileName(use.profile ?? "")}${use.layer ? " (second layer)" : ""}`,
+          : use.rose
+            ? `${state.value?.roseMenus.find((m) => m.id === use.rose)?.name ?? "A rose menu"} rose`
+            : `${use.button === "thumbwheel" ? "Thumb wheel" : presets.buttonLabel(use.button ?? "")} · ${profileName(use.profile ?? "")}${use.layer ? " (second layer)" : ""}`,
       );
   }
 

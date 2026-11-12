@@ -72,60 +72,19 @@
         <UiButton v-else variant="ghost" size="sm" class="px-2.5! text-xs!" @click="askDelete"
           >Delete</UiButton
         >
-        <PopoverRoot v-model:open="settingsOpen">
-          <PopoverTrigger
-            aria-label="Movement settings"
-            class="grid size-7 shrink-0 place-items-center rounded-md text-ink-3 hover:bg-fill"
-            ><PhSlidersHorizontal class="size-4"
-          /></PopoverTrigger>
-          <UiPopoverContent :open="settingsOpen" align="end" class="w-76 p-4"
-            ><UiSlider
-              v-model="spacing"
-              label="Distance between sequence steps"
-              description="Applies to continued movements in a sequence. The first movement and each turn use 2 mm."
-              :min="MIN_SPACING_MM"
-              :max="MAX_SPACING_MM"
-              :step="0.5"
-              :default-value="DEFAULT_SPACING_MM"
-              :format="(mm) => `${mm} mm`"
-              @commit="(mm) => (draft!.spacingMm = mm)"
-          /></UiPopoverContent>
-        </PopoverRoot>
       </header>
 
       <div class="gesture-workspace min-h-0 flex-1 overflow-hidden">
         <UiScrollArea content-class="flex flex-col gap-3 px-5 py-4">
           <div class="flex items-center justify-between">
             <h3 class="text-xs font-medium text-ink-2">Mouse movement</h3>
-            <span class="text-[11px] text-ink-3">{{
-              totalPaths ? "Includes sequences" : "4 simple movements"
-            }}</span>
+            <span class="text-[11px] text-ink-3">{{ countsText(draft) }}</span>
           </div>
-          <GestureMap :preset="draft" :selected="selectedPath" @select="selectPath" />
+          <GestureMap :preset="draft" :selected="selected" @select="select" />
           <p class="text-center text-[11px] leading-relaxed text-ink-3">
             Hold the button, then move the mouse.
           </p>
 
-          <div v-if="totalPaths" class="flex flex-col gap-1.5 border-t border-line pt-3">
-            <h3 class="text-xs font-medium text-ink-2">Sequences</h3>
-            <button
-              v-for="item in sequences"
-              :key="pathKey(item.path)"
-              type="button"
-              class="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-fill"
-              :class="pathKey(item.path) === selectedKey && 'bg-accent/10'"
-              @click="selectPath(item.path)"
-            >
-              <span
-                class="shrink-0 font-medium text-accent"
-                :aria-label="item.path.map((d) => DIRECTION_LABELS[d]).join(' then ')"
-                >{{ pathText(item.path) }}</span
-              >
-              <span class="truncate text-ink-2">{{
-                complete(actionOf(item.step)) ? describeAction(actionOf(item.step)) : "Choose an action"
-              }}</span>
-            </button>
-          </div>
           <details class="border-t border-line pt-3">
             <summary class="cursor-pointer text-xs font-medium text-ink-2">
               {{
@@ -155,15 +114,7 @@
         </UiScrollArea>
 
         <UiScrollArea class="border-l border-line" content-class="px-5 py-4">
-          <GestureMoveEditor
-            ref="moveEditor"
-            :preset="draft"
-            :path="selectedPath"
-            @select="selectPath"
-            @change="setStep"
-            @extend="extendPath"
-            @remove="removePath"
-          />
+          <GestureMoveEditor :preset="draft" :direction="selected" @change="setMove" />
         </UiScrollArea>
       </div>
       <footer
@@ -204,7 +155,7 @@
 </template>
 
 <script setup lang="ts">
-import { PhPlus, PhSlidersHorizontal } from "@phosphor-icons/vue";
+import { PhPlus } from "@phosphor-icons/vue";
 import {
   DialogContent,
   DialogDescription,
@@ -212,8 +163,6 @@ import {
   DialogPortal,
   DialogRoot,
   DialogTitle,
-  PopoverRoot,
-  PopoverTrigger,
 } from "reka-ui";
 import type { ButtonAction, Direction, GesturePreset } from "~/composables/useAgent";
 
@@ -238,17 +187,10 @@ const cards = computed(() =>
 const draft = ref<GesturePreset | null>(null);
 const note = ref("");
 const confirming = ref(false);
-const settingsOpen = ref(false);
-const selectedKey = ref("up");
-const spacing = ref(DEFAULT_SPACING_MM);
-const moveEditor = useTemplateRef("moveEditor");
+const selected = ref<Direction>("up");
 const copy = (p: GesturePreset): GesturePreset => JSON.parse(JSON.stringify(p));
 function resetDraft() {
   draft.value = preset.value ? copy(preset.value) : null;
-  spacing.value = preset.value?.spacingMm ?? DEFAULT_SPACING_MM;
-  // Undo or an external edit may remove the selected step.
-  if (draft.value && !stepAt(draft.value, selectedKey.value.split(",") as Direction[]))
-    selectedKey.value = "up";
 }
 watch(() => canonical(preset.value ?? null), resetDraft, { immediate: true });
 watch(
@@ -256,17 +198,14 @@ watch(
   () => {
     note.value = "";
     confirming.value = false;
-    selectedKey.value = "up";
+    selected.value = "up";
   },
 );
 
-const rows = computed(() => (draft.value ? pathRows(draft.value) : []));
-const selectedPath = computed(() => selectedKey.value.split(",") as Direction[]);
-const sequences = computed(() => rows.value.filter((row) => row.path.length > 1 && !row.leadsOn));
-const totalPaths = computed(() => sequences.value.length);
 const unfinished = computed(() => {
-  const row = rows.value.find((r) => !complete(actionOf(r.step)));
-  return row ? row.path.map((d) => DIRECTION_LABELS[d]).join(" → ") : null;
+  const d = draft.value;
+  const direction = d && DIRECTIONS.find((dir) => !complete(d[dir]));
+  return direction ? DIRECTION_LABELS[direction] : null;
 });
 watch(
   () => canonical(draft.value),
@@ -277,28 +216,13 @@ watch(
   },
 );
 
-function selectPath(path: Direction[]) {
-  selectedKey.value = pathKey(path);
+function select(direction: Direction) {
+  selected.value = direction;
   note.value = "";
 }
-function setStep(path: Direction[], action: ButtonAction) {
-  draft.value = withStep(draft.value!, path, (step) => withAction(step, action));
-  selectedKey.value = pathKey(path);
-}
-function removePath(path: Direction[]) {
-  draft.value = withStep(draft.value!, path, () => null);
-  selectedKey.value = pathKey(path.slice(0, -1));
-  void nextTick(() => moveEditor.value?.focusAction());
-}
-function extendPath(path: Direction[]) {
-  if (shapeProblem(path) || fitProblem(draft.value!, path)) return;
-  const changed = addingChanges(draft.value!, path);
-  draft.value = addPath(draft.value!, path);
-  selectedKey.value = pathKey(path);
-  void nextTick(() => moveEditor.value?.focusAction());
-  note.value = changed
-    ? `${pathText(path.slice(0, -1))} now leads on, so its held key became a single action, or it stopped repeating.`
-    : "";
+function setMove(direction: Direction, action: ButtonAction) {
+  draft.value = { ...draft.value!, [direction]: action };
+  selected.value = direction;
 }
 function rename(event: Event) {
   const input = event.target as HTMLInputElement;
@@ -323,14 +247,14 @@ async function deletePreset() {
   if (await presets.discard(preset.value!)) openId.value = null;
 }
 watch(lastGesture, (gesture) => {
-  if (!preset.value || !gesture?.path.length || !draft.value || !stepAt(draft.value, gesture.path)) return;
+  if (!preset.value || !gesture || !draft.value) return;
   const follows = state.value?.presetUses.some(
     (use) =>
       use.preset === preset.value!.id &&
       use.profile === state.value?.activeProfile &&
       use.button === gesture.button,
   );
-  if (follows) selectedKey.value = pathKey(gesture.path);
+  if (follows) selected.value = gesture.direction;
 });
 </script>
 

@@ -23,7 +23,7 @@ test("profile switching, renaming, and device popovers keep the surrounding work
   await stable();
 });
 
-test("gesture selection, sequence creation, and action menus keep directions anchored", async ({ native }) => {
+test("gesture selection and action menus keep directions anchored", async ({ native }) => {
   const { page, agent } = native;
   await page.getByRole("button", { name: /^Gestures/ }).click();
   const stable = await watchLayout(page, [
@@ -35,15 +35,8 @@ test("gesture selection, sequence creation, and action menus keep directions anc
   await page.keyboard.press("ArrowRight");
   await expect(page.getByRole("button", { name: /^Edit Right:/ })).toBeFocused();
   await page.keyboard.press("ArrowUp");
-  await page.getByRole("button", { name: "Add another movement", exact: true }).click();
-  await page.getByRole("button", { name: /^↑ Continue up$/ }).click();
   const movement = page.getByRole("region", { name: "Selected movement", exact: true });
-  await expect(movement.getByText("Hold the button, move up, then continue up.", { exact: true })).toBeVisible();
-  await expect(movement.getByRole("checkbox", { name: "Repeat with movement", exact: true })).toHaveCount(0);
-  await movement.getByRole("button", { name: /^Window tiling .*: Choose an action$/ }).click();
-  await page.getByRole("textbox", { name: /search actions$/ }).fill("Do nothing");
-  await page.getByRole("option", { name: "Do nothing", exact: true }).click();
-  await expect.poll(() => !!agent.state.gesturePresets[0]!.up.up).toBe(true);
+  await expect(movement.getByText("Hold the button, then move up.", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: /^Edit Up:/ }).click();
   await movement.getByRole("button", { name: /^Window tiling .*:/ }).first().click();
   await page.getByRole("textbox", { name: /search actions$/ }).fill("Do nothing");

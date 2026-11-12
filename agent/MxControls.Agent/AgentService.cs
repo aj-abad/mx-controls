@@ -76,7 +76,8 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
                 settings.StartAtLogin, _optionsPlus, _error, Interlocked.Read(ref _revision), settings.MultiClickMs,
                 settings.AllPresets, PresetLibrary.BuiltIn, PresetUses(settings), settings.Macros ?? [], MacroUses(settings),
                 settings.Active.Id, _engine?.LayerActive ?? false, platform.Programs is not null, AgentBuild.Hash,
-                settings.HostShortcuts ?? [], _systemActions, platform.Apps is not null, platform.Shortcuts is not null);
+                settings.HostShortcuts ?? [], _systemActions, platform.Apps is not null, platform.Shortcuts is not null,
+                settings.RoseMenus ?? [], RoseUses(settings), settings.BaseProfile.Id);
         }
     }
 
@@ -88,6 +89,12 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
             p.AllBindings.Select(b => (Binding: b, Layer: false)).Concat(p.SecondLayer.AllBindings.Select(b => (Binding: b, Layer: true)))
                 .Where(x => x.Binding is { IsGesture: true, Preset: not null })
                 .Select(x => new PresetUse(x.Binding.Preset!, p.Id, x.Binding.Button, x.Layer))).ToArray();
+
+    private static IReadOnlyList<RoseUse> RoseUses(AgentSettings settings) =>
+        settings.AllProfiles.SelectMany(p =>
+            p.AllBindings.Select(b => (Binding: b, Layer: false)).Concat(p.SecondLayer.AllBindings.Select(b => (Binding: b, Layer: true)))
+                .Where(x => x.Binding is { IsRose: true, Menu: not null })
+                .Select(x => new RoseUse(x.Binding.Menu!, p.Id, x.Binding.Button, x.Layer))).ToArray();
 
     public async Task RunAsync(CancellationToken stop)
     {
@@ -269,16 +276,15 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
     {
         var profile = _settings.Running(_foreground);
         _macros.Set(_settings.Macros ?? []);
-        var engine = await ButtonEngine.StartAsync(mx, platform, UsableBindings(_settings, profile.AllBindings), _macros,
-            UsableBindings(_settings, profile.SecondLayer.AllBindings));
+        var engine = await ButtonEngine.StartAsync(mx, platform, UsableBindings(_settings, profile, false), _macros,
+            UsableBindings(_settings, profile, true));
         _engine = engine;
         _appliedProfile = profile.Id;
         engine.Failed += error => Log.Write($"Running an action failed: {error.Message}");
-        engine.GestureFired += (cid, path, ran) => Published?.Invoke("gesture",
-            new GestureEvent(ButtonId(cid), path.Count > 0 ? path[^1] : null, path, ran ? "fire" : "step"));
+        engine.GestureFired += (cid, direction) => Published?.Invoke("gesture", new GestureEvent(ButtonId(cid), direction));
         engine.ClickFired += (cid, count) => Published?.Invoke("click", new ClickEvent(ButtonId(cid), count));
         engine.LayerChanged += active => OnLayerChanged(engine, active);
-        engine.RoseChanged += (cid, option, ran) => Published?.Invoke("rose", new RoseEvent(ButtonId(cid), option, ran));
+        engine.RoseChanged += (cid, path, option, ran) => Published?.Invoke("rose", new RoseEvent(ButtonId(cid), option, ran, path));
         engine.DiversionStale += () => OnLayerChanged(engine, engine.LayerActive);
         engine.ProfileRequested += OnProfileRequested;
         engine.NativePressed += cid => OnNativePressed(engine, cid);
@@ -300,8 +306,8 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
     }
 
     // A binding this platform can't run is skipped rather than stopping the others.
-    private IEnumerable<ButtonBinding> UsableBindings(AgentSettings settings, IEnumerable<ButtonBinding> bindings) =>
-        settings.Resolved(bindings).Where(b => b.Problem(platform) is null);
+    private IEnumerable<ButtonBinding> UsableBindings(AgentSettings settings, Profile profile, bool secondLayer) =>
+        settings.Resolved(profile, secondLayer).Where(b => b.Problem(platform) is null);
 
     private ThumbWheelSettings UsableWheel(ThumbWheelSettings wheel) =>
         wheel.Problem(platform) is null ? wheel : ThumbWheelSettings.Default;
@@ -318,8 +324,8 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
         var profile = settings.Running(_foreground);
         try
         {
-            await _engine!.UpdateAsync(UsableBindings(settings, profile.AllBindings),
-                UsableBindings(settings, profile.SecondLayer.AllBindings), resetLayer: profile.Id != _appliedProfile);
+            await _engine!.UpdateAsync(UsableBindings(settings, profile, false),
+                UsableBindings(settings, profile, true), resetLayer: profile.Id != _appliedProfile);
             _appliedProfile = profile.Id;
             if (_thumb is not null)
                 await _thumb.UpdateAsync(UsableWheel(profile.Wheel), UsableSecondWheel(profile));
@@ -698,9 +704,8 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
                 var preset = args.GetProperty("preset").Deserialize(AgentJson.Default.GesturePreset)
                     ?? throw new ArgumentException("Missing the gesture preset.");
                 PresetArg(preset);
-                ButtonAction[] steps = [.. new[] { preset.Up, preset.Down, preset.Left, preset.Right }.SelectMany(s => s.All).Select(s => s.Action)];
-                CheckMacros(steps);
-                CheckProfileActions(steps);
+                CheckMacros(preset.Moves);
+                CheckProfileActions(preset.Moves);
                 await _queue.RunAsync(() => ChangeSettingsAsync(s => s with
                 {
                     GesturePresets = s.GesturePresets?.Any(p => p.Id == preset.Id) == true
@@ -715,6 +720,28 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
                 await _queue.RunAsync(() => ChangeSettingsAsync(s => s with
                 {
                     GesturePresets = (s.GesturePresets ?? []).Where(p => p.Id != gone).ToArray(),
+                }));
+                break;
+            case "setRoseMenu":
+                var menu = args.GetProperty("menu").Deserialize(AgentJson.Default.RoseMenu)
+                    ?? throw new ArgumentException("Missing the rose menu.");
+                MenuArg(menu);
+                CheckMacros(menu.AllActions);
+                CheckProfileActions(menu.AllActions);
+                await _queue.RunAsync(() => ChangeSettingsAsync(s => s with
+                {
+                    RoseMenus = s.RoseMenus?.Any(m => m.Id == menu.Id) == true
+                        ? s.RoseMenus.Select(m => m.Id == menu.Id ? menu : m).ToArray()
+                        : [.. s.RoseMenus ?? [], menu],
+                }));
+                break;
+            case "deleteRoseMenu":
+                // Buttons keep pointing at a deleted menu and run just their quick press, so putting it back with the
+                // same ID, as undo does, brings their rose back too.
+                var dropped = args.GetProperty("id").GetString() ?? "";
+                await _queue.RunAsync(() => ChangeSettingsAsync(s => s with
+                {
+                    RoseMenus = (s.RoseMenus ?? []).Where(m => m.Id != dropped).ToArray(),
                 }));
                 break;
             case "setMacro":
@@ -800,19 +827,21 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
         {
             case "setBindings":
                 var bindings = args.GetProperty("bindings").Deserialize(AgentJson.Default.ButtonBindingArray) ?? [];
+                var bindingsFor = EditedProfile(args);
                 foreach (var binding in bindings)
                 {
                     if (binding.Problem(platform) is { } problem)
                         throw new ArgumentException($"{binding.Button}: {problem}");
                     if (binding is { IsGesture: true, Gesture: null, Preset: { } preset } && _settings.FindPreset(preset) is null)
                         throw new ArgumentException($"{binding.Button}: that gesture preset was deleted.");
+                    if (binding is { IsRose: true, Rose: null, Menu: { } shown } && _settings.FindRose(shown) is null)
+                        throw new ArgumentException($"{binding.Button}: that rose menu was deleted.");
+                    if (binding.Inherits && _settings.BaseProfile.Id == bindingsFor)
+                        throw new ArgumentException($"{binding.Button}: {_settings.BaseProfile.Name} is the profile others follow, so it can't follow one itself.");
                     CheckMacros(binding.AllActions);
                     CheckProfileActions(binding.AllActions);
-                    if (binding.Rose is { PassesThrough: true } && !EditsLayer(args))
-                        throw new ArgumentException($"{binding.Button}: only the second layer's rose can pass options through to the main layer.");
                 }
                 var distinct = bindings.DistinctBy(b => b.Button.ToLowerInvariant()).ToArray();
-                var bindingsFor = EditedProfile(args);
                 return EditsLayer(args)
                     ? () => ChangeSettingsAsync(s => EditProfile(s, bindingsFor, p => WithLayer(p, p.SecondLayer with { Bindings = distinct })))
                     : () => ChangeSettingsAsync(s => EditProfile(s, bindingsFor, p => p with { Bindings = distinct }));
@@ -1087,10 +1116,9 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
                 uses.AddRange(Run([second.Left, second.Right]).Select(id => new MacroUse(id, profile.Id, "thumbwheel", Layer: true)));
         }
         foreach (var preset in settings.AllPresets)
-        {
-            var steps = new[] { preset.Up, preset.Down, preset.Left, preset.Right }.SelectMany(s => s.All).Select(s => s.Action);
-            uses.AddRange(Run(steps).Select(id => new MacroUse(id, Preset: preset.Id)));
-        }
+            uses.AddRange(Run(preset.Moves).Select(id => new MacroUse(id, Preset: preset.Id)));
+        foreach (var menu in settings.RoseMenus ?? [])
+            uses.AddRange(Run(menu.AllActions).Select(id => new MacroUse(id, Rose: menu.Id)));
         return uses.Distinct().ToArray();
     }
 
@@ -1103,6 +1131,18 @@ public sealed class AgentService(IPlatform platform, SettingsStore store) : IAsy
         if (PresetLibrary.BuiltIn.FirstOrDefault(p => p.Id == preset.Id) is { } builtIn && builtIn.Name != preset.Name)
             throw new ArgumentException("A built-in preset keeps its name. Duplicate it to name your own.");
         if (preset.Icon is { } icon && !(icon.Length is > 0 and <= 40 && icon.All(c => c is '-' or (>= 'a' and <= 'z') or (>= '0' and <= '9'))))
+            throw new ArgumentException($"'{icon}' isn't an icon name.");
+    }
+
+    private void MenuArg(RoseMenu menu)
+    {
+        if (menu.Id is not { } id || !IsId(id))
+            throw new ArgumentException($"'{menu.Id}' isn't a rose menu ID.");
+        if (string.IsNullOrWhiteSpace(menu.Name) || menu.Name.Length > 60)
+            throw new ArgumentException("A rose menu needs a name of at most 60 characters.");
+        if (menu.Problem(platform) is { } problem)
+            throw new ArgumentException(problem);
+        if (menu.Icon is { } icon && !(icon.Length is > 0 and <= 40 && icon.All(c => c is '-' or (>= 'a' and <= 'z') or (>= '0' and <= '9'))))
             throw new ArgumentException($"'{icon}' isn't an icon name.");
     }
 

@@ -95,15 +95,6 @@ public class OpenActionTests
     }
 
     [Fact]
-    public void GestureStepsCarryTheNewFields()
-    {
-        var action = new ButtonAction(ActionTypes.Open, Open: "app:Chrome", Name: "Google Chrome");
-        Assert.Equal(action, GestureStep.Of(action).Action);
-        var mapped = GestureStep.Of(action).Map(a => a);
-        Assert.Equal("Google Chrome", mapped.Name);
-    }
-
-    [Fact]
     public void TheNewFieldsRoundTripThroughTheWireFormat()
     {
         var json = """[{"button":"middle","mode":"action","action":{"type":"appleShortcut","shortcut":"ID-1","name":"Focus"}}]""";

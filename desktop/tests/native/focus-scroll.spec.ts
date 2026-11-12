@@ -39,7 +39,7 @@ test(`keyboard focus stays inside buttons and menu options in ${colorScheme} app
 test("a long preset menu uses Reka scrolling and keeps keyboard selection in view", async ({ native }) => {
   const { page, agent } = native;
   agent.state.gesturePresets = Array.from({ length: 24 }, (_, i) => ({
-    id: `preset-${i + 1}`, name: `Preset ${String(i + 1).padStart(2, "0")}`, spacingMm: 6,
+    id: `preset-${i + 1}`, name: `Preset ${String(i + 1).padStart(2, "0")}`,
     up: { type: "none" }, down: { type: "none" }, left: { type: "none" }, right: { type: "none" },
   }));
   agent.emit("state", agent.state);

@@ -93,7 +93,7 @@ public class MacroTests
         var copy = new ButtonAction(ActionTypes.Press, [OperatingSystem.IsMacOS() ? "MetaLeft" : "ControlLeft", "KeyC"]);
         var work = new Profile("work", "Work", [new ButtonBinding("middle", ButtonBinding.ActionMode, custom, DoubleClick: copy)],
             new ThumbWheelSettings(ThumbWheelSettings.ActionsMode, Left: custom with { Repeat = false }));
-        var preset = new GesturePreset("p", "P", GestureStep.Of(custom with { Repeat = false }), GestureStep.Nothing, GestureStep.Nothing, GestureStep.Nothing);
+        var preset = new GesturePreset("p", "P", custom with { Repeat = false }, ButtonAction.Nothing, ButtonAction.Nothing, ButtonAction.Nothing);
         var before = new AgentSettings(Profiles: [work], GesturePresets: [preset]);
         var json = JsonSerializer.Serialize(before, Protocol.Json);
         var settings = JsonSerializer.Deserialize<AgentSettings>(json, Protocol.Json)!.Migrated();

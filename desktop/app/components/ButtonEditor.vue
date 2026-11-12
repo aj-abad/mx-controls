@@ -2,14 +2,14 @@
   <div class="flex flex-col gap-5">
     <section class="flex flex-col gap-3" :aria-label="`${button.name} clicks`">
       <h3 class="text-xs font-medium text-ink-3">
-        {{ draft.rose ? "Quick press" : preset ? "Press without moving" : "Press" }}
+        {{ draft.inherit ? "Press" : roseMode ? "Quick press" : preset ? "Press without moving" : "Press" }}
       </h3>
       <div class="flex h-8 items-center gap-1" role="group" aria-label="Click count">
         <button
           v-for="count in [1, 2, 3]"
           :key="count"
           type="button"
-          :disabled="(count === 3 && !draft.double) || (count > 1 && !!draft.rose)"
+          :disabled="(count === 3 && !draft.double) || (count > 1 && (roseMode || draft.inherit))"
           :aria-pressed="clickTab === count"
           class="h-8 flex-1 rounded-lg px-2 text-xs font-medium disabled:opacity-30"
           :class="[
@@ -24,9 +24,11 @@
       </div>
       <div class="flex h-6 items-center justify-between text-xs text-ink-3">
         <span>{{
-          clickTab === 1 && draft.rose
-            ? "Runs on a short press that doesn't open the rose"
-            : clickTab === 1 ? (preset || waits ? "Runs on release" : "Runs on press") : "Runs on release"
+          draft.inherit
+            ? `Follows ${baseName}`
+            : clickTab === 1 && roseMode
+              ? "Runs on a short press that doesn't open the rose"
+              : clickTab === 1 ? (preset || waits ? "Runs on release" : "Runs on press") : "Runs on release"
         }}</span>
         <button
           type="button"
@@ -39,15 +41,18 @@
       </div>
       <ActionEditor
         :key="`${button.id}:${clickTab}`"
-        :model-value="selectedClick"
+        :model-value="draft.inherit ? null : selectedClick"
         :label="`${button.name} ${CLICK_NAMES[clickTab]}`"
         :default-label="clickTab === 1 ? defaultLabel : undefined"
+        :inherit-label="clickTab === 1 && canInherit ? `Same as ${baseName}` : undefined"
+        :inherits="draft.inherit"
         :allow-hold="clickTab === 1 && !waits"
         :allow-repeat="clickTab === 1 && !waits"
         :layers="clickTab === 1 && !waits ? 'hold' : 'toggle'"
         profiles
         @update:model-value="setSelectedClick"
         @default="setClick(null)"
+        @inherit="inherit"
       />
       <div class="h-10 text-[13px] leading-relaxed text-ink-3">
         <p v-if="draft.double">
@@ -73,74 +78,89 @@
           >
           for another click.
         </p>
-        <p v-else-if="draft.rose">A rose button runs one click; double and triple clicks aren't available.</p>
+        <p v-else-if="draft.inherit">{{ inheritText }}</p>
+        <p v-else-if="roseMode">A rose button runs one click; double and triple clicks aren't available.</p>
         <p v-else>
           Use the double-click tab to add another action. Triple clicks become available after that.
         </p>
       </div>
     </section>
 
-    <section class="flex flex-col gap-3" :aria-label="`${button.name} while held`">
+    <section v-if="!draft.inherit" class="flex flex-col gap-3" :aria-label="`${button.name} while held`">
       <div class="flex items-center justify-between">
         <h3 class="text-xs font-medium text-ink-3">While held</h3>
         <button
-          v-if="!draft.rose"
           type="button"
           class="text-xs text-ink-3 hover:text-ink"
-          @click="emit('openPresets', null)">
+          @click="roseMode ? emit('openRoses', null) : emit('openPresets', null)">
           Browse library ›
         </button>
       </div>
       <UiSegmented v-model="heldChoice" :options="HELD_OPTIONS" :label="`What ${button.name} does while held`" />
-      <RoseEditor
-        v-if="draft.rose"
-        v-model="draft.rose"
-        :below="inLayer ? (inherited?.mode === 'rose' ? (inherited.rose ?? null) : null) : undefined"
-        :button-id="button.id"
-        :button-name="button.name" />
-      <UiSelect
-        v-if="!draft.rose"
-        v-model="presetChoice"
-        :options="presetOptions"
-        :label="`${button.name} gesture preset`" />
-      <UiScrollArea
-        v-if="!draft.rose"
-        class="h-48 rounded-xl bg-fill/60 ring-1 ring-line ring-inset"
-        content-class="p-3">
-        <p v-if="!preset" class="text-[13px] leading-relaxed text-ink-3">
-          Hold this button, then move up, down, left or right. Choose a shared preset to assign those
-          movements.
-        </p>
-        <template v-else>
-          <div class="flex items-start gap-3">
-            <PresetCompass :preset="preset" :highlight="firedPath" class="shrink-0" />
+      <template v-if="roseMode">
+        <UiSelect v-model="menuChoice" :options="menuOptions" :label="`${button.name} rose menu`" />
+        <UiScrollArea class="h-48 rounded-xl bg-fill/60 ring-1 ring-line ring-inset" content-class="p-3">
+          <p v-if="!menu" class="text-[13px] leading-relaxed text-ink-3">
+            Hold this button to open a ring of options around the pointer. Choose a shared rose menu for its options,
+            or make a new one.
+          </p>
+          <template v-else>
             <ul class="flex min-w-0 flex-col gap-0.5 text-[13px]">
-              <li v-for="line in presetLines" :key="line.key" class="flex min-w-0 gap-2">
-                <span class="w-12 shrink-0 text-ink-3">{{ line.glyphs }}</span
-                ><span class="truncate">{{ line.action }}</span>
+              <li v-for="line in menuLines" :key="line.key" class="flex min-w-0 gap-2">
+                <span class="w-6 shrink-0 text-ink-3 tabular-nums">{{ line.key + 1 }}</span>
+                <span class="truncate" :class="line.dim && 'text-ink-3'">{{ line.text }}</span>
               </li>
-              <li v-if="moreLines" class="text-ink-3">and {{ moreLines }} more</li>
             </ul>
-          </div>
-          <div class="mt-3 flex items-center gap-2 border-t border-line pt-2.5">
-            <p class="min-w-0 flex-1 text-xs text-ink-3">{{ presetUsed }}</p>
-            <UiButton size="sm" @click="emit('openPresets', preset.id)">Edit preset ›</UiButton>
-          </div>
-        </template>
-      </UiScrollArea>
+            <div class="mt-3 flex items-center gap-2 border-t border-line pt-2.5">
+              <p class="min-w-0 flex-1 text-xs text-ink-3">{{ menuUsed }}</p>
+              <UiButton size="sm" @click="emit('openRoses', menu.id)">Edit menu ›</UiButton>
+            </div>
+          </template>
+        </UiScrollArea>
+      </template>
+      <template v-else>
+        <UiSelect v-model="presetChoice" :options="presetOptions" :label="`${button.name} gesture preset`" />
+        <UiScrollArea class="h-48 rounded-xl bg-fill/60 ring-1 ring-line ring-inset" content-class="p-3">
+          <p v-if="!preset" class="text-[13px] leading-relaxed text-ink-3">
+            Hold this button, then move up, down, left or right. Choose a shared preset to assign those
+            movements.
+          </p>
+          <template v-else>
+            <div class="flex items-start gap-3">
+              <PresetCompass :preset="preset" :highlight="firedDirection" class="shrink-0" />
+              <ul class="flex min-w-0 flex-col gap-0.5 text-[13px]">
+                <li v-for="line in presetLines" :key="line.key" class="flex min-w-0 gap-2">
+                  <span class="w-5 shrink-0 text-ink-3">{{ line.glyph }}</span
+                  ><span class="truncate">{{ line.action }}</span>
+                </li>
+              </ul>
+            </div>
+            <div class="mt-3 flex items-center gap-2 border-t border-line pt-2.5">
+              <p class="min-w-0 flex-1 text-xs text-ink-3">{{ presetUsed }}</p>
+              <UiButton size="sm" @click="emit('openPresets', preset.id)">Edit preset ›</UiButton>
+            </div>
+          </template>
+        </UiScrollArea>
+      </template>
     </section>
     <UiScrollArea
       class="h-12 text-xs leading-relaxed"
       :class="unfinished ? 'text-warn' : 'text-ink-3'"
       role="status"
     >
-      {{ unfinished ? `Choose an action for “${unfinished}” to save this button.` : downgraded }}
+      {{
+        unfinished === "menu"
+          ? "Choose a rose menu to save this button."
+          : unfinished
+            ? `Choose an action for “${unfinished}” to save this button.`
+            : downgraded
+      }}
     </UiScrollArea>
   </div>
 </template>
 <script setup lang="ts">
 import { PopoverRoot, PopoverTrigger } from "reka-ui";
-import type { ButtonAction, ButtonBinding, ButtonState, Direction, RoseMenu } from "~/composables/useAgent";
+import type { ButtonAction, ButtonBinding, ButtonState, Direction } from "~/composables/useAgent";
 
 const { button, binding, inherited, apply } = defineProps<{
   button: ButtonState;
@@ -156,10 +176,9 @@ const { button, binding, inherited, apply } = defineProps<{
 const emit = defineEmits<{
   /** Opens the presets page, on this preset if one is given. */
   openPresets: [id: string | null];
+  /** Opens the rose menus page, on this menu if one is given. */
+  openRoses: [id: string | null];
 }>();
-
-const GHOST =
-  "flex h-10 w-full items-center rounded-lg border border-dashed border-fill-strong px-3 text-sm text-ink-3 hover:border-ink-3 hover:text-ink";
 
 /** What the button does without MX Studio, as an action, for the buttons whose own action is known. */
 const OWN_ACTIONS: Record<string, ButtonAction> = {
@@ -182,10 +201,15 @@ interface Draft {
   double: ButtonAction | null;
   triple: ButtonAction | null;
   preset: string | null;
-  /** The rose shown while held, instead of a gesture preset. */
-  rose: RoseMenu | null;
+  /** Whether the button shows a rose while held instead of following a gesture preset. */
+  rose: boolean;
+  /** The rose menu shown, once one is chosen. */
+  menu: string | null;
+  /** The button does whatever the base profile does with it, and nothing of its own. */
+  inherit: boolean;
 }
-const draft = ref<Draft>({ click: null, double: null, triple: null, preset: null, rose: null });
+const draft = ref<Draft>({ click: null, double: null, triple: null, preset: null, rose: false, menu: null, inherit: false });
+const roseMode = computed(() => draft.value.rose);
 const CLICK_NAMES: Record<number, string> = { 1: "Click", 2: "Double click", 3: "Triple click" };
 const clickTab = ref(1);
 const selectedClick = computed(() =>
@@ -212,11 +236,24 @@ const downgraded = ref("");
 
 const { state, attempt, lastGesture, lastClick } = useAgent();
 const presets = useGesturePresets();
+const roses = useRoseMenus();
 const view = useProfileView();
 const preset = computed(() => presets.find(draft.value.preset));
+const menu = computed(() => roses.find(draft.value.menu));
+
+/** The profile others follow, which can't follow anything itself. */
+const baseName = computed(() => state.value?.profiles.find((p) => p.id === state.value?.baseProfile)?.name ?? "Default");
+const canInherit = computed(() => !!state.value && view.profile.value?.id !== state.value.baseProfile);
+const inheritText = computed(() => {
+  const base = state.value?.profiles.find((p) => p.id === state.value?.baseProfile);
+  const own = (view.second.value ? base?.layer.bindings : null)?.find((b) => b.button === button.id)
+    ?? base?.bindings.find((b) => b.button === button.id);
+  const does = own ? describeBinding(own) : (MOUSE_BUTTONS[button.id] ?? "what it does on its own");
+  return `Does whatever ${baseName.value} does with this button${view.second.value ? " in its second layer" : ""}: ${does}.`;
+});
 
 /** Clicks have to wait or run on release, so a click can't keep a key down or repeat. */
-const waits = computed(() => !!draft.value.double || !!preset.value || !!draft.value.rose);
+const waits = computed(() => !!draft.value.double || !!preset.value || draft.value.rose);
 
 function reset() {
   const b = binding;
@@ -226,7 +263,9 @@ function reset() {
     double: (legacy ? legacy.doubleClick : b?.doubleClick) ?? null,
     triple: (legacy ? legacy.tripleClick : b?.tripleClick) ?? null,
     preset: b?.mode === "gesture" ? (b.preset ?? null) : null,
-    rose: b?.mode === "rose" && b.rose ? (JSON.parse(JSON.stringify(b.rose)) as RoseMenu) : null,
+    rose: b?.mode === "rose",
+    menu: b?.mode === "rose" ? (b.menu ?? null) : null,
+    inherit: b?.mode === "inherit",
   };
   if ((clickTab.value === 2 && !draft.value.double) || (clickTab.value === 3 && !draft.value.triple))
     clickTab.value = 1;
@@ -239,6 +278,14 @@ watch(() => `${button.id}|${canonical(binding ?? null)}`, reset, { immediate: tr
 
 function setClick(action: ButtonAction | null) {
   draft.value.click = action;
+  draft.value.inherit = false;
+  downgraded.value = "";
+}
+
+/** Follows the base profile from now on: everything the button had of its own goes, and Ctrl+Z brings it back. */
+function inherit() {
+  draft.value = { click: null, double: null, triple: null, preset: null, rose: false, menu: null, inherit: true };
+  clickTab.value = 1;
   downgraded.value = "";
 }
 
@@ -284,26 +331,62 @@ const heldChoice = computed({
   get: () => (draft.value.rose ? "rose" : "gestures"),
   set: (value) => {
     if (value === "rose" && !draft.value.rose) startRose();
-    if (value === "gestures") draft.value.rose = null;
+    if (value === "gestures") Object.assign(draft.value, { rose: false, menu: null });
   },
 });
 
 /**
- * Turns the button into a rose: four empty options, or in the second layer as many as the main layer's rose,
- * each passing its option through. A rose runs a single quick press, so extra clicks go.
+ * Turns the button into a rose, waiting for a menu to be chosen; in the second layer it starts on the main
+ * layer's menu. A rose runs a single quick press, so extra clicks go.
  */
 function startRose() {
-  const main = inLayer.value && inherited?.mode === "rose" ? inherited.rose : null;
-  draft.value.rose = main
-    ? { items: main.items.map(() => ({ action: NOTHING, passThrough: true })) }
-    : { items: Array.from({ length: 4 }, () => ({ action: NOTHING })) };
-  draft.value.preset = null;
+  const main = inLayer.value && inherited?.mode === "rose" ? (inherited.menu ?? null) : null;
+  Object.assign(draft.value, { rose: true, menu: main, preset: null });
   if (draft.value.double) {
     removeDouble();
     clickTab.value = 1;
     downgraded.value = "A rose runs one quick press, so the double and triple clicks were removed.";
   }
 }
+
+const menuOptions = computed(() => [
+  ...(draft.value.menu ? [] : [{ value: "none", label: "Choose a rose menu" }]),
+  ...roses.menus.value.map((m) => ({ value: m.id, label: m.name })),
+  { value: "new", label: "New rose menu…" },
+]);
+const menuChoice = computed({
+  get: () => draft.value.menu ?? "none",
+  set: (value) => {
+    if (value === "new") return void newMenu();
+    if (value !== "none") draft.value.menu = value;
+  },
+});
+
+/** A blank menu this button shows straight away, opened to fill in. */
+async function newMenu() {
+  const id = await roses.create(roses.blank());
+  if (!id) return;
+  draft.value.menu = id;
+  emit("openRoses", id);
+}
+
+const menuLines = computed(() =>
+  (menu.value?.items ?? []).map((item, key) => ({
+    key,
+    text: item.passThrough ? "Same as main layer" : `${describeRoseItem(item)}${item.items ? " ›" : ""}`,
+    dim: !!item.passThrough || (!item.items && item.action.type === "none"),
+  })),
+);
+const menuUsed = computed(() => {
+  if (!menu.value) return "";
+  const others = roses.usedBy(menu.value.id, {
+    profile: view.profile.value?.id ?? "",
+    button: button.id,
+    layer: view.second.value,
+  });
+  if (!others.length) return "Only this button shows it.";
+  return `Shared with ${others.join(", ")}. Editing it changes ${others.length === 1 ? "both" : "all of them"}.`;
+});
 
 const presetOptions = computed(() => [
   { value: "none", label: "None" },
@@ -328,18 +411,15 @@ async function newPreset() {
   emit("openPresets", id);
 }
 
-const MAX_LINES = 6;
-const presetRows = computed(() =>
-  preset.value ? pathRows(preset.value).filter((row) => row.step.type !== "none") : [],
-);
 const presetLines = computed(() =>
-  presetRows.value.slice(0, MAX_LINES).map((row) => ({
-    key: pathKey(row.path),
-    glyphs: pathText(row.path),
-    action: describeAction(actionOf(row.step)),
-  })),
+  preset.value
+    ? DIRECTIONS.filter((d) => preset.value![d].type !== "none").map((d) => ({
+        key: d,
+        glyph: GLYPHS[d],
+        action: describeAction(preset.value![d]),
+      }))
+    : [],
 );
-const moreLines = computed(() => Math.max(0, presetRows.value.length - MAX_LINES));
 const presetUsed = computed(() => {
   if (!preset.value) return "";
   const others = presets.usedBy(preset.value.id, {
@@ -352,8 +432,9 @@ const presetUsed = computed(() => {
 });
 
 const next = computed<ButtonBinding | null>(() => {
-  const { click, double, triple, preset: presetId, rose } = draft.value;
-  if (rose) return { button: button.id, mode: "rose", action: click ?? ownAction.value, rose };
+  const { click, double, triple, preset: presetId, rose, menu: menuId, inherit: follows } = draft.value;
+  if (follows) return { button: button.id, mode: "inherit" };
+  if (rose) return { button: button.id, mode: "rose", action: click ?? ownAction.value, menu: menuId };
   if (!click && !double && !presetId) return null;
   const clicks = double ? { doubleClick: double, ...(triple && { tripleClick: triple }) } : {};
   const action = click ?? ownAction.value;
@@ -370,11 +451,9 @@ const unfinished = computed(() => {
     ["Double click", double],
     ["Triple click", double ? triple : null],
   ];
-  const options = (draft.value.rose?.items ?? []).map((item, i): [string, ButtonAction | null] => [
-    `Option ${i + 1}`,
-    item.passThrough ? null : item.action,
-  ]);
-  return [...parts, ...options].find(([, action]) => action && !complete(action))?.[0];
+  if (draft.value.inherit) return undefined;
+  const found = parts.find(([, action]) => action && !complete(action))?.[0];
+  return found ?? (draft.value.rose && !draft.value.menu ? "menu" : undefined);
 });
 
 // Changes apply as they're made, with Ctrl+Z to put them back, once the agent would take them.
@@ -390,22 +469,19 @@ const { speed, waitOpen } = useClickWait();
 
 // Using the button lights up what it just ran.
 const fired = ref(0);
-const firedPath = ref<Direction[] | null>(null);
+const firedDirection = ref<Direction | null>(null);
 let unlight: ReturnType<typeof setTimeout> | undefined;
-function light(count: number, path: Direction[] | null) {
+function light(count: number, direction: Direction | null) {
   fired.value = count;
-  firedPath.value = path;
+  firedDirection.value = direction;
   clearTimeout(unlight);
   unlight = setTimeout(() => {
     fired.value = 0;
-    firedPath.value = null;
+    firedDirection.value = null;
   }, 700);
 }
 watch(lastClick, (click) => click?.button === button.id && light(click.count, null));
-watch(
-  lastGesture,
-  (gesture) => gesture?.button === button.id && gesture.path.length > 0 && light(0, gesture.path),
-);
+watch(lastGesture, (gesture) => gesture?.button === button.id && light(0, gesture.direction));
 onBeforeUnmount(() => clearTimeout(unlight));
 
 function useClickWait() {

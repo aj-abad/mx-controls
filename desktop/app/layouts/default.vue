@@ -160,6 +160,7 @@ import {
   PhWarningCircle,
   PhX,
   PhKeyboard,
+  PhCircleHalf,
 } from "@phosphor-icons/vue";
 import { AnimatePresence, motion } from "motion-v";
 import type { Page } from "~/composables/usePage";
@@ -176,6 +177,12 @@ const library = computed(() => [
     count: state.value?.gesturePresets.length ?? 0,
   },
   {
+    id: "roses" as const,
+    label: "Roses",
+    icon: PhCircleHalf,
+    count: state.value?.roseMenus.length ?? 0,
+  },
+  {
     id: "macros" as const,
     label: "Macros",
     icon: PhKeyboard,
@@ -185,11 +192,13 @@ const library = computed(() => [
 const titles: Record<Page, string> = {
   profiles: "Profiles",
   gestures: "Gestures",
+  roses: "Rose menus",
   macros: "Macros",
 };
 const descriptions: Record<Page, string> = {
   profiles: "Choose a profile, then select a control to customize it.",
   gestures: "Turn a held button and a movement into an action.",
+  roses: "Ring menus around the pointer, with folders as deep as you like.",
   macros: "Build reusable sequences of keys, text and clicks.",
 };
 const navClass = (id: Page) => [

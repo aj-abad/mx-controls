@@ -34,8 +34,14 @@ export interface AgentState {
   /** Which buttons follow which preset, in every profile; `layer` for the second layer. */
   presetUses: { preset: string; profile: string; button: string; layer?: boolean }[];
   macros: Macro[];
-  /** Where each macro runs: a button or the thumb wheel in a profile, or a step of a gesture preset. */
+  /** Where each macro runs: a button or the thumb wheel in a profile, a gesture preset, or a rose menu. */
   macroUses: MacroUse[];
+  /** The library's rose menus, which buttons show by ID. */
+  roseMenus: RoseMenu[];
+  /** Which buttons show which rose menu, in every profile; `layer` for the second layer. */
+  roseUses: { menu: string; profile: string; button: string; layer?: boolean }[];
+  /** The profile other profiles' buttons can follow with an `inherit` binding. */
+  baseProfile: string;
   /** The named system actions this platform runs, such as "taskView" or "lockScreen". */
   systemActions: string[];
   /** Whether `open` actions work here. */
@@ -81,6 +87,8 @@ export interface MacroUse {
   profile?: string | null;
   button?: string | null;
   preset?: string | null;
+  /** A rose menu with an option that runs it. */
+  rose?: string | null;
   /** In the profile's second layer. */
   layer?: boolean;
 }
@@ -183,32 +191,18 @@ export interface ButtonAction {
 
 export type Direction = "up" | "down" | "left" | "right";
 
-/**
- * A step of a gesture: its action, and the steps beyond it, the same way to go further or at right angles to
- * turn. Not both, and never back the way it came.
- */
-export interface GestureStep extends ButtonAction {
-  up?: GestureStep | null;
-  down?: GestureStep | null;
-  left?: GestureStep | null;
-  right?: GestureStep | null;
-}
-
 /** Saved moves buttons follow, so editing one changes every button that uses it. Clicks stay on each button. */
-export interface GesturePreset extends Record<Direction, GestureStep> {
+export interface GesturePreset extends Record<Direction, ButtonAction> {
   id: string;
   name: string;
-  /** Distance between steps in a run, 4 to 15 mm. */
-  spacingMm: number;
   icon?: string | null;
 }
 
 /** A gesture carried whole, from before presets; the agent moves these into presets when it loads them. */
-export type GestureActions = Record<Direction, GestureStep> & {
+export type GestureActions = Record<Direction, ButtonAction> & {
   click: ButtonAction;
   doubleClick?: ButtonAction | null;
   tripleClick?: ButtonAction | null;
-  spacingMm?: number;
 };
 
 /** One option of a rose; mirrors `RoseItem` in `agent/MxControls.Core/Actions/RoseMenu.cs`. */
@@ -222,20 +216,29 @@ export interface RoseItem {
   iconPath?: string | null;
   /** Second layer only: shows and runs the main layer's option in the same place. */
   passThrough?: boolean;
+  /** For a folder, its 2 to 8 options, which open in a ring of their own; its action is then "none". */
+  items?: RoseItem[] | null;
 }
 
-/** 2 to 8 options around the pointer while the button is held, clockwise from the top. */
+/**
+ * 2 to 8 options around the pointer while the button is held, clockwise from the top. Menus live in a library that
+ * buttons show by ID, so editing one changes every button showing it.
+ */
 export interface RoseMenu {
+  id: string;
+  name: string;
+  icon?: string | null;
   items: RoseItem[];
 }
 
 /**
- * A gesture follows `preset`, with `action` and the double and triple clicks as its clicks. A rose shows `rose`
- * while held, and `action` is what a quick press that never leaves the middle runs.
+ * A gesture follows `preset`, with `action` and the double and triple clicks as its clicks. A rose shows the menu
+ * `menu` while held, and `action` is what a quick press that never leaves the middle runs. `inherit` runs whatever
+ * the base profile does with the button in the same layer, and carries nothing else.
  */
 export interface ButtonBinding {
   button: string;
-  mode: "action" | "gesture" | "rose";
+  mode: "action" | "gesture" | "rose" | "inherit";
   action?: ButtonAction | null;
   gesture?: GestureActions | null;
   /** What two quick clicks run. */
@@ -244,16 +247,20 @@ export interface ButtonBinding {
   tripleClick?: ButtonAction | null;
   /** For `gesture`: the preset it follows. */
   preset?: string | null;
-  /** For `rose`: its options. */
-  rose?: RoseMenu | null;
+  /** For `rose`: the rose menu it shows. */
+  menu?: string | null;
+  /** For `rose`, from before the library: its options carried whole, which the agent moves into the library. */
+  rose?: { items: RoseItem[] } | null;
 }
 
 /** A rose's highlight moved, or its option ran as the button came up. */
 export interface RoseEvent {
   button: string | null;
-  /** The option's index, or null back in the middle. */
+  /** The option's index in the ring showing, or null back in its middle. */
   option: number | null;
   ran: boolean;
+  /** The folders open, by index from the rose's own ring; empty there. */
+  path: number[];
 }
 
 /** A diverted control going down or up; the agent only hears the controls it or another app diverted. */
@@ -263,14 +270,10 @@ export interface ButtonEvent {
   down: boolean;
 }
 
+/** A gesture direction that ran as it was reached. */
 export interface GestureEvent {
   button: string | null;
-  /** The last of `path`, or null once a path is backed out of. */
-  direction: Direction | null;
-  /** One direction per step. */
-  path: Direction[];
-  /** "fire" when it ran, "step" when the path changed without running. */
-  phase: "fire" | "step";
+  direction: Direction;
 }
 
 /** A click that ran: 1, 2 or 3 for a single, double or triple click. */
@@ -339,16 +342,18 @@ const OPTIMISTIC = new Set([
   "setHostName",
   "setHostShortcut",
   "setGesturePreset",
+  "setRoseMenu",
   "setMacro",
   "setProfilePrograms",
 ]);
 
 /**
- * Each preset, macro, and layer of each profile is its own setting, so changes to two in a row don't stand in for
+ * Each preset, rose menu, macro, and layer of each profile is its own setting, so changes to two in a row don't stand in for
  * each other.
  */
 function settingKey(method: string, params: Record<string, unknown>) {
   if (method === "setGesturePreset") return `${method}:${(params.preset as { id: string }).id}`;
+  if (method === "setRoseMenu") return `${method}:${(params.menu as { id: string }).id}`;
   if (method === "setMacro") return `${method}:${(params.macro as { id: string }).id}`;
   if (method === "setBindings" || method === "setThumbWheel") return `${method}:${params.profile ?? ""}:${!!params.layer}`;
   if (method === "setProfilePrograms") return `${method}:${params.id}`;
