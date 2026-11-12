@@ -1,7 +1,7 @@
 <template>
   <MouseDrawing
     role="img"
-    aria-label="MX Master 4"
+    aria-label="Mouse"
     class="absolute text-ink-3"
     :style="{
       left: `${frame.image.x}px`,
@@ -67,7 +67,7 @@
         r="4"
         class="transition-[fill,scale]"
         :class="[
-          dot.id === active ? 'fill-white' : dot.customized ? 'fill-accent' : 'fill-fill-strong',
+          dot.id === active ? 'fill-on-ink' : dot.customized ? 'fill-accent' : 'fill-fill-strong',
           dot.id === pressed && 'scale-90',
         ]" />
     </g>

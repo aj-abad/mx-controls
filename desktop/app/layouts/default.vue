@@ -129,7 +129,7 @@
         <main class="min-h-0 flex-1 px-6 pb-5">
           <div v-if="!pipeConnected || !device" class="grid h-full place-items-center">
             <div class="flex max-w-sm flex-col items-center text-center">
-              <MouseDrawing :weight="2" aria-hidden="true" class="mb-2 w-64 text-ink-3" />
+              <MouseDrawing :weight="2.5" aria-hidden="true" class="mb-3 w-36 text-ink-3" />
               <h2 class="text-lg font-semibold">
                 {{ pipeConnected ? "Connect your MX Master" : "Starting MX Studio" }}
               </h2>

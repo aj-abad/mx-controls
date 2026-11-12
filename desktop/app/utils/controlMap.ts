@@ -1,7 +1,7 @@
 /**
  * The main screen is drawn at a fixed design size and scaled to fit the window, so the line from the
  * mouse to the list can be laid out by hand. Only one line shows at a time, for the control under the
- * pointer or open; it runs from a spot on the drawing, up or across to an elbow, then straight right to its row.
+ * pointer or open; it runs from a spot on the drawing at 75° to its row's height, then straight right to its row.
  *
  * Where the drawing and the list sit is a `Frame`. Opening a control moves from `OVERVIEW` to `FOCUS`, and
  * everything placed against the drawing is worked out from the frame, so it can be blended between the two.
@@ -27,16 +27,11 @@ export const GROUPS: { id: GroupId; label: string }[] = [
 export interface Control {
   id: ControlId;
   group: GroupId;
-  /** Where the control sits on `MouseDrawing` (961 × 603), in its pixels. */
+  /** Where the control sits on `MouseDrawing` (296 × 454), in its units. */
   spot: Point;
-  /**
-   * `steep` rises at 75° to its row, for the controls on top of the mouse whose rows sit above it.
-   * `gutter` bends at a shared column right of the thumb buttons, which sit too close for steep legs.
-   */
-  leg: "steep" | "gutter";
 }
 
-const DRAWING = { width: 961, height: 603 };
+const DRAWING = { width: 296, height: 454 };
 
 export const STAGE = { width: 1060, height: 540 };
 export const LIST = { x: 720, width: 340, padding: 6, header: 30, row: 44 };
@@ -49,9 +44,9 @@ export interface Frame {
   edge: number;
 }
 
-export const OVERVIEW: Frame = { image: { x: 0, y: 126, scale: 0.65 }, edge: LIST.x };
+export const OVERVIEW: Frame = { image: { x: 240, y: 86, scale: 0.94 }, edge: LIST.x };
 /** With a control open, the drawing steps back to make room for its settings. */
-export const FOCUS: Frame = { image: { x: 0, y: 120, scale: 0.57 }, edge: INSPECTOR.x };
+export const FOCUS: Frame = { image: { x: 173, y: 113, scale: 0.82 }, edge: INSPECTOR.x };
 
 const mix = (from: number, to: number, t: number) => from + (to - from) * t;
 export const mixFrames = (from: Frame, to: Frame, t: number): Frame => ({
@@ -65,22 +60,21 @@ export const mixFrames = (from: Frame, to: Frame, t: number): Frame => ({
 
 /** Lines stop short of their row, so the round cap doesn't poke into the card. */
 const LINE_GAP = 4;
-/** The column the thumb controls' lines bend at, in pixels of the drawing, so it moves with it. */
-const GUTTER = 750;
 const STEEP = 1 / Math.tan((75 * Math.PI) / 180);
 
 /** In list order, top to bottom, grouped as `GROUPS`. */
 export const CONTROLS: Control[] = [
-  { id: "wheel", group: "scrolling", spot: { x: 200, y: 315 }, leg: "steep" },
-  { id: "thumbwheel", group: "scrolling", spot: { x: 660, y: 128 }, leg: "steep" },
-  { id: "middle", group: "buttons", spot: { x: 272, y: 245 }, leg: "steep" },
-  { id: "smartshift", group: "buttons", spot: { x: 410, y: 128 }, leg: "steep" },
-  { id: "back", group: "buttons", spot: { x: 700, y: 210 }, leg: "gutter" },
-  { id: "forward", group: "buttons", spot: { x: 628, y: 280 }, leg: "gutter" },
-  { id: "gesture", group: "buttons", spot: { x: 537, y: 357 }, leg: "gutter" },
-  { id: "haptic", group: "buttons", spot: { x: 635, y: 395 }, leg: "gutter" },
-  // The sensor is underneath, so its spot sits on the base below the thumb rest.
-  { id: "sensor", group: "pointer", spot: { x: 690, y: 522 }, leg: "gutter" },
+  // The wheel carries two dots: turning it, and clicking it.
+  { id: "wheel", group: "scrolling", spot: { x: 184, y: 118 } },
+  { id: "thumbwheel", group: "scrolling", spot: { x: 80, y: 215 } },
+  { id: "middle", group: "buttons", spot: { x: 184, y: 85 } },
+  { id: "smartshift", group: "buttons", spot: { x: 184, y: 202 } },
+  { id: "back", group: "buttons", spot: { x: 80, y: 325 } },
+  { id: "forward", group: "buttons", spot: { x: 80, y: 295 } },
+  { id: "gesture", group: "buttons", spot: { x: 80, y: 265 } },
+  { id: "haptic", group: "buttons", spot: { x: 43.5, y: 258 } },
+  // The sensor is underneath, so its spot sits on the ring that marks it on the palm rest.
+  { id: "sensor", group: "pointer", spot: { x: 186, y: 333 } },
 ];
 
 /** Where each group's heading and each control's row sit in the list, for the controls this mouse has. */
@@ -114,9 +108,7 @@ export const rowAnchor = (top: number, frame: Frame): Point => ({ x: frame.edge 
 export function route(control: Control, top: number, frame: Frame): Point[] {
   const dot = dotAt(control, frame);
   const end = rowAnchor(top, frame);
-  const elbowX =
-    control.leg === "steep" ? dot.x + Math.abs(dot.y - end.y) * STEEP : frame.image.x + GUTTER * frame.image.scale;
-  return [dot, { x: elbowX, y: end.y }, end];
+  return [dot, { x: dot.x + Math.abs(dot.y - end.y) * STEEP, y: end.y }, end];
 }
 
 const ELBOW_RADIUS = 8;

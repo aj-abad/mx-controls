@@ -85,9 +85,8 @@
   }
 }
 
-/* The control map's dots, which stay light chips whatever the theme. */
+/* The control map's dots rest as white chips whatever the theme, so their idle centre needs a fixed grey. */
 .light-dots {
-  --color-ink: #141414;
   --color-fill-strong: #d4d4d8;
 }
 
