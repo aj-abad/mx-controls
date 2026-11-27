@@ -47,7 +47,7 @@
 
       <div class="border-t border-line pt-4 text-sm" v-if="state?.optionsPlusRunning">
         <p class="text-xs font-medium text-warn">
-          Logi Options+ is running and will conflict with MX Studio.
+          Logi Options+ is running and will conflict with ezPz.
         </p>
       </div>
     </UiPopoverContent>

@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 import { MockAgent } from "./mock-agent";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
-export const nativeExecutable = path.join(root, "src-tauri/target/native-tests/debug/mx-controls.exe");
+export const nativeExecutable = path.join(root, "src-tauri/target/native-tests/debug/ezpz.exe");
 interface NativeEnvironment {
   run: string; pipe: string; hardwareAgentEnabled: boolean; visible: boolean; focused: boolean;
   width: number; height: number;
@@ -54,7 +54,7 @@ export const test = base.extend<{ native: NativeApp }>({
     if (process.platform !== "win32") throw new Error("Native UI tests currently require Windows/WebView2");
     await access(nativeExecutable).catch(() => { throw new Error("Run pnpm test:native:build before pnpm test:native:run"); });
     const run = randomUUID();
-    const pipe = `mx-controls-ui-test-${run}`;
+    const pipe = `ezpz-ui-test-${run}`;
     const dataDir = testInfo.outputPath("webview-profile");
     await mkdir(dataDir, { recursive: true });
     const agent = new MockAgent();
@@ -72,7 +72,7 @@ export const test = base.extend<{ native: NativeApp }>({
         cwd: root, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
         env: {
           ...process.env,
-          MX_CONTROLS_TEST_RUN: run, MX_CONTROLS_TEST_PIPE: pipe,
+          EZPZ_TEST_RUN: run, EZPZ_TEST_PIPE: pipe,
           WEBVIEW2_USER_DATA_FOLDER: dataDir,
           WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-address=127.0.0.1 --remote-debugging-port=${port} --disable-backgrounding-occluded-windows --disable-background-timer-throttling --disable-renderer-backgrounding`,
         },

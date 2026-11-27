@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "MX Studio UI Tests",
-  "identifier": "app.mxcontrols.desktop.tests",
+  "productName": "ezPz UI Tests",
+  "identifier": "app.ezpz.desktop.tests",
   "build": {
     "beforeBuildCommand": "pnpm generate"
   },
@@ -9,7 +9,7 @@
     "withGlobalTauri": true,
     "windows": [{
       "label": "main",
-      "title": "MX Studio UI Tests",
+      "title": "ezPz UI Tests",
       "width": 1124,
       "height": 632,
       "resizable": false,

@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    mx_controls_lib::run()
+    ezpz_lib::run()
 }

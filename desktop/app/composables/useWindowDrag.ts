@@ -1,5 +1,3 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
-
 /** Anything that reacts to a press; the window moves only when none of these is under the pointer. */
 const INTERACTIVE = "button, a, input, textarea, select, label, [role], [contenteditable], [tabindex], [data-dismissable-layer], .ui-scrollbar";
 
@@ -14,12 +12,12 @@ function onMouseDown(event: MouseEvent) {
     (target.scrollHeight > target.clientHeight || target.scrollWidth > target.clientWidth)
   )
     return;
-  void getCurrentWindow().startDragging();
+  startWindowDrag();
 }
 
 /** The window has no system title bar, so it moves when dragged by any part that isn't a control. */
 export function useWindowDrag() {
-  if (!("__TAURI_INTERNALS__" in window)) return;
+  if (!shell) return;
   onMounted(() => document.addEventListener("mousedown", onMouseDown));
   onBeforeUnmount(() => document.removeEventListener("mousedown", onMouseDown));
 }

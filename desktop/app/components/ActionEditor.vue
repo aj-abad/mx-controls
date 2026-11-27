@@ -46,6 +46,23 @@
       >
         Edit shared macro ›
       </button>
+      <template v-if="navButton && navKeys">
+        <span class="shrink-0 text-xs text-ink-3">Sends</span>
+        <ShortcutCapture
+          class="min-w-0 flex-1"
+          :model-value="navKeys[navButton]"
+          :label="`${navButton === 'back' ? 'Back' : 'Forward'} in apps that ignore the side buttons`"
+          @update:model-value="(keys) => setNavigationKeys(keys)" />
+        <button
+          v-if="!sameKeys(navKeys[navButton], DEFAULT_NAVIGATION_KEYS[navButton])"
+          type="button"
+          class="flex size-8 shrink-0 items-center justify-center rounded-lg text-ink-3 transition-colors duration-150 hover:bg-fill hover:text-ink"
+          :aria-label="`Put back ${chordLabel(DEFAULT_NAVIGATION_KEYS[navButton])}`"
+          :title="`Put back ${chordLabel(DEFAULT_NAVIGATION_KEYS[navButton])}`"
+          @click="setNavigationKeys(null)">
+          <PhArrowCounterClockwise class="size-4" />
+        </button>
+      </template>
       <button v-if="macroKeys" type="button" class="text-xs font-medium text-accent hover:underline" @click="useAsShortcut">
         Use as shortcut
       </button>
@@ -64,7 +81,9 @@
 </template>
 
 <script setup lang="ts">
+import { PhArrowCounterClockwise } from "@phosphor-icons/vue";
 import type { ButtonAction } from "~/composables/useAgent";
+import { DEFAULT_NAVIGATION_KEYS } from "~/composables/useAgent";
 
 const {
   modelValue,
@@ -77,6 +96,7 @@ const {
   inherits = false,
   layers = "none",
   profiles = false,
+  defaultAction,
 } = defineProps<{
   /** Null for the button's default, where `defaultLabel` is given. */
   modelValue: ButtonAction | null;
@@ -97,6 +117,8 @@ const {
   layers?: "hold" | "toggle" | "none";
   /** Offers switching profiles. */
   profiles?: boolean;
+  /** What the default does, where `defaultLabel` is given, so settings that belong to that action can show. */
+  defaultAction?: ButtonAction;
 }>();
 const emit = defineEmits<{ "update:modelValue": [action: ButtonAction]; default: []; inherit: [] }>();
 
@@ -186,6 +208,8 @@ const actionHint = computed(() => {
       path: "Opens with its default app; a folder opens in " + (IS_MAC ? "Finder." : "File Explorer."),
     }[openKind(modelValue.open)];
   if (modelValue?.type === "appleShortcut") return "Runs the Shortcut from the Shortcuts app, in the background.";
+  if (navButton.value)
+    return "Finder, Safari, App Store and System Settings ignore the side buttons, so they get these keys, from every button.";
   return "";
 });
 
@@ -203,7 +227,26 @@ function setTarget(value: string) {
 }
 
 const { goTo } = usePage();
-const { state } = useAgent();
+const { state, attempt } = useAgent();
+
+/**
+ * Back or forward, for an action that clicks one, where the platform sends keys for them in programs that ignore
+ * the buttons; null otherwise.
+ */
+const navKeys = computed(() => state.value?.navigationKeys ?? null);
+const navButton = computed(() => {
+  if (inherits || !navKeys.value) return null;
+  const action = modelValue ?? defaultAction;
+  return action?.type === "click" && (action.mouse === "back" || action.mouse === "forward") ? action.mouse : null;
+});
+
+/** Null puts back the platform's own keys. */
+async function setNavigationKeys(keys: string[] | null) {
+  if (!navButton.value) return;
+  await attempt("setNavigationKeys", { button: navButton.value, keys }, "Couldn't change those keys");
+}
+
+const sameKeys = (a: string[], b: string[]) => a.length === b.length && a.every((key, i) => key === b[i]);
 const macroKeys = computed(() => {
   if (modelValue?.type !== "macro") return null;
   const steps = state.value?.macros.find((macro) => macro.id === modelValue.macro)?.steps;

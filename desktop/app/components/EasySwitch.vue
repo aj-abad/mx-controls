@@ -76,7 +76,7 @@
           </button>
         </div>
         <p class="text-xs text-ink-3">
-          These work from any app while the mouse is on this computer. To switch back, set shortcuts in MX Studio on the
+          These work from any app while the mouse is on this computer. To switch back, set shortcuts in ezPz on the
           other computer too.
         </p>
       </section>

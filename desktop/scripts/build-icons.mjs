@@ -16,7 +16,7 @@ const ictool = resolve(developer, "..", "Applications", "Icon Composer.app", "Co
 if (!existsSync(ictool)) throw new Error(`No ictool at ${ictool}. Icon Composer comes with Xcode 26 or later.`);
 
 const srgb = "/System/Library/ColorSync/Profiles/sRGB Profile.icc";
-const work = mkdtempSync(join(tmpdir(), "mx-icons-"));
+const work = mkdtempSync(join(tmpdir(), "ezpz-icons-"));
 
 // ICO and ICNS can't follow the system appearance, so they carry the light rendition. Icon Composer renders in
 // Display P3, and the icon tools drop the profile, so convert it or the colors shift.

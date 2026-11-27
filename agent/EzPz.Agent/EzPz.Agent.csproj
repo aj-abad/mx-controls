@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- WinExe so the sign-in task doesn't open a console window; output goes to Logs\agent.log. -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>EzPz.Agent</RootNamespace>
+    <AssemblyName>ezpz-agent</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../EzPz.Core/EzPz.Core.csproj" />
+    <ProjectReference Include="../EzPz.Platform.Windows/EzPz.Platform.Windows.csproj" />
+    <ProjectReference Include="../EzPz.Platform.MacOS/EzPz.Platform.MacOS.csproj" />
+    <Compile Include="../Shared/Platforms.cs" Link="Platforms.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Photino.NET" Version="4.0.16" />
+  </ItemGroup>
+</Project>

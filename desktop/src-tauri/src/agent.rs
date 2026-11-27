@@ -1,4 +1,4 @@
-//! The connection to the MX Studio agent: newline-delimited JSON over a named pipe on Windows,
+//! The connection to the ezPz agent: newline-delimited JSON over a named pipe on Windows,
 //! and over the Unix socket .NET makes for the same pipe name elsewhere.
 
 use serde_json::{json, Value};
@@ -19,7 +19,7 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader
 use tokio::sync::{mpsc, oneshot, Mutex};
 
 #[cfg(not(feature = "ui-tests"))]
-fn pipe_name() -> String { "mx-controls-agent".into() }
+fn pipe_name() -> String { "ezpz-agent".into() }
 #[cfg(feature = "ui-tests")]
 fn pipe_name() -> String { crate::ui_test::pipe_name() }
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
@@ -49,7 +49,7 @@ impl Agent {
         {
             let outbox = self.outbox.lock().await;
             let Some(outbox) = outbox.as_ref() else {
-                return Err("The MX Studio agent isn't running.".into());
+                return Err("The ezPz agent isn't running.".into());
             };
             self.pending.lock().await.insert(id, reply);
             let line = json!({ "id": id, "method": method, "params": params }).to_string();
@@ -78,7 +78,7 @@ pub async fn run(app: AppHandle, agent: Arc<Agent>) {
         .map_err(std::io::Error::other)
         .and_then(|unpacked| unpacked)
     {
-        eprintln!("MX Studio: couldn't unpack the agent: {error}");
+        eprintln!("ezPz: couldn't unpack the agent: {error}");
     }
     let mut expected_hash = tokio::task::spawn_blocking(expected_agent_hash).await.ok().flatten();
     #[cfg(not(feature = "ui-tests"))]
@@ -181,7 +181,7 @@ fn expected_agent_hash() -> Option<String> {
     return None;
     #[cfg(not(any(feature = "ui-tests", debug_assertions)))]
     {
-        if std::env::var_os("MX_AGENT_PATH").is_some() {
+        if std::env::var_os("EZPZ_AGENT_PATH").is_some() {
             return None;
         }
         hash_file(&agent_path()?).ok()
@@ -195,11 +195,12 @@ fn hash_file(path: &Path) -> std::io::Result<String> {
     Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
-/// `MX_AGENT_PATH`, the agent a portable build unpacked, or the `mx-agent` sidecar, which Tauri places beside the
-/// app in a bundle and in development.
+/// `EZPZ_AGENT_PATH`, the agent a portable build unpacked, or the bundled agent: on macOS the one in the
+/// `ezPz Agent.app` helper (see `build-agent.mjs`), elsewhere the `ezpz-agent` sidecar, which Tauri places beside
+/// the app in a bundle and in development.
 #[cfg(not(feature = "ui-tests"))]
 fn agent_path() -> Option<PathBuf> {
-    if let Ok(path) = std::env::var("MX_AGENT_PATH") {
+    if let Ok(path) = std::env::var("EZPZ_AGENT_PATH") {
         return Some(path.into());
     }
     #[cfg(feature = "embedded-agent")]
@@ -209,8 +210,27 @@ fn agent_path() -> Option<PathBuf> {
             return Some(unpacked);
         }
     }
-    let exe = if cfg!(windows) { "mx-agent.exe" } else { "mx-agent" };
-    let beside = std::env::current_exe().ok()?.parent()?.join(exe);
+    let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    #[cfg(target_os = "macos")]
+    {
+        const HELPER: &str = "ezPz Agent.app/Contents/MacOS/ezpz-agent";
+        // Contents/MacOS/ezpz → Contents/Helpers. Without `..`, so the agent's own path stays tidy.
+        if let Some(bundled) = exe_dir.parent().map(|contents| contents.join("Helpers").join(HELPER)) {
+            if bundled.exists() {
+                return Some(bundled);
+            }
+        }
+        // `tauri dev` runs the bare executable, outside any bundle; use the helper the agent build made.
+        #[cfg(debug_assertions)]
+        {
+            let built = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/agent-app").join(HELPER);
+            if built.exists() {
+                return Some(built);
+            }
+        }
+    }
+    let exe = if cfg!(windows) { "ezpz-agent.exe" } else { "ezpz-agent" };
+    let beside = exe_dir.join(exe);
     beside.exists().then_some(beside)
 }
 
@@ -218,7 +238,7 @@ fn agent_path() -> Option<PathBuf> {
 #[cfg(not(feature = "ui-tests"))]
 fn launch_agent() {
     let Some(path) = agent_path() else {
-        eprintln!("MX Studio: no mx-agent beside the app; run `pnpm agent` or set MX_AGENT_PATH");
+        eprintln!("ezPz: no ezpz-agent beside the app; run `pnpm agent` or set EZPZ_AGENT_PATH");
         return;
     };
     let mut command = Command::new(&path);
@@ -229,7 +249,7 @@ fn launch_agent() {
         Ok(mut child) => {
             std::thread::spawn(move || child.wait());
         }
-        Err(error) => eprintln!("MX Studio: couldn't start {}: {error}", path.display()),
+        Err(error) => eprintln!("ezPz: couldn't start {}: {error}", path.display()),
     }
 }
 
@@ -250,7 +270,7 @@ pub fn hide_window(command: &mut Command) {
 mod tests {
     #[test]
     fn hash_file_matches_the_agents_format() {
-        let path = std::env::temp_dir().join(format!("mx-hash-test-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("ezpz-hash-test-{}", std::process::id()));
         std::fs::write(&path, "abc").unwrap();
         let hash = super::hash_file(&path);
         std::fs::remove_file(&path).unwrap();

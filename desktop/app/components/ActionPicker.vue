@@ -78,7 +78,7 @@ const { modelValue, label, allowHold = true, defaultLabel, inheritLabel, layers 
   currentName?: string;
   label: string;
   allowHold?: boolean;
-  /** Offers "default", what the button does without MX Studio, under this name. */
+  /** Offers "default", what the button does without ezPz, under this name. */
   defaultLabel?: string;
   /** Offers "inherit", whatever the base profile does with the button, under this name. */
   inheritLabel?: string;

@@ -20,7 +20,7 @@ export default defineNuxtConfig({
   app: {
     head: {
       htmlAttrs: { lang: "en" },
-      title: "MX Studio",
+      title: "ezPz",
       meta: [
         { name: "viewport", content: "width=device-width, initial-scale=1" },
         { name: "color-scheme", content: "light dark" },

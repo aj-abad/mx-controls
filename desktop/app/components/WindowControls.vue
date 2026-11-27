@@ -29,14 +29,11 @@
 
 <script setup lang="ts">
 import { PhMinus, PhX } from "@phosphor-icons/vue";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 
 const BUTTON = "grid size-8 place-items-center text-ink-2";
 
-const inTauri = "__TAURI_INTERNALS__" in window;
-
-const minimize = () => inTauri && void getCurrentWindow().minimize();
-const close = () => inTauri && void getCurrentWindow().close();
+const minimize = minimizeWindow;
+const close = closeWindow;
 
 const focused = ref(document.hasFocus());
 const onFocus = () => (focused.value = true);

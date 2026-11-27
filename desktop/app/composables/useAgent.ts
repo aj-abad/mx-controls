@@ -1,7 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 
-/** Mirrors `agent/MxControls.Agent/Protocol.cs`. */
+/** Mirrors `agent/EzPz.Agent/Protocol.cs`. */
 export interface AgentState {
   connected: boolean;
   device: DeviceState | null;
@@ -48,7 +46,24 @@ export interface AgentState {
   opensApps: boolean;
   /** Whether there's a Shortcuts app to run, which is only on a Mac. */
   runsShortcuts: boolean;
+  /**
+   * What the back and forward buttons send in programs that ignore them, such as Finder on a Mac; null where every
+   * program takes the buttons.
+   */
+  navigationKeys: NavigationKeys | null;
 }
+
+/** Keys as `KeyboardEvent.code` names, modifiers first. */
+export interface NavigationKeys {
+  back: string[];
+  forward: string[];
+}
+
+/** What a Mac sends for back and forward where the buttons don't work: Cmd+[ and Cmd+]. */
+export const DEFAULT_NAVIGATION_KEYS: NavigationKeys = {
+  back: ["MetaLeft", "BracketLeft"],
+  forward: ["MetaLeft", "BracketRight"],
+};
 
 /** An app `listApps` offers; an `open` action opens it as `app:` and its ID. */
 export interface AppInfo {
@@ -139,7 +154,7 @@ export interface HostsInfo {
   channels: { index: number; paired: boolean; name: string }[];
 }
 
-/** Mirrors `agent/MxControls.Core/Actions/ThumbWheel.cs`. */
+/** Mirrors `agent/EzPz.Core/Actions/ThumbWheel.cs`. */
 export interface ThumbWheelSettings {
   mode: "scroll" | "actions";
   /** Percent, from 25 to 300. */
@@ -166,7 +181,7 @@ export interface ButtonState {
   divertedElsewhere: boolean;
 }
 
-/** Mirrors `agent/MxControls.Core/Actions/ButtonAction.cs`. */
+/** Mirrors `agent/EzPz.Core/Actions/ButtonAction.cs`. */
 export interface ButtonAction {
   type: "none" | "hold" | "press" | "system" | "click" | "macro" | "layer" | "profile" | "open" | "appleShortcut";
   /** `KeyboardEvent.code` names in press order, modifiers first. */
@@ -205,7 +220,7 @@ export type GestureActions = Record<Direction, ButtonAction> & {
   tripleClick?: ButtonAction | null;
 };
 
-/** One option of a rose; mirrors `RoseItem` in `agent/MxControls.Core/Actions/RoseMenu.cs`. */
+/** One option of a rose; mirrors `RoseItem` in `agent/EzPz.Core/Actions/RoseMenu.cs`. */
 export interface RoseItem {
   action: ButtonAction;
   /** What the rose shows; the agent names the action when there's none. */
@@ -312,7 +327,7 @@ let keyHandlers: KeyHandlers | null = null;
 // Revisions start again when the agent does, so the floor drops each time the pipe connects.
 let revisionFloor = -1;
 
-const inTauri = () => "__TAURI_INTERNALS__" in window;
+const inShell = () => shell !== null;
 
 /** Takes a state from the agent unless a newer one has already arrived. */
 function receive(next: AgentState) {
@@ -341,6 +356,7 @@ const OPTIMISTIC = new Set([
   "setMultiClickMs",
   "setHostName",
   "setHostShortcut",
+  "setNavigationKeys",
   "setGesturePreset",
   "setRoseMenu",
   "setMacro",
@@ -358,6 +374,7 @@ function settingKey(method: string, params: Record<string, unknown>) {
   if (method === "setBindings" || method === "setThumbWheel") return `${method}:${params.profile ?? ""}:${!!params.layer}`;
   if (method === "setProfilePrograms") return `${method}:${params.id}`;
   if (method === "setHostShortcut") return `${method}:${params.host}`;
+  if (method === "setNavigationKeys") return `${method}:${params.button}`;
   return method;
 }
 const DEBOUNCE_MS = 150;
@@ -395,7 +412,7 @@ const state = computed(() => {
 });
 
 async function call<T = AgentState>(method: string, params: Record<string, unknown> = {}) {
-  if (!inTauri()) {
+  if (!inShell()) {
     if (method === "listPrograms") return previewPrograms() as T;
     if (method === "listApps") return previewApps() as T;
     if (method === "listShortcuts") return previewShortcuts() as T;
@@ -404,7 +421,7 @@ async function call<T = AgentState>(method: string, params: Record<string, unkno
     receive({ ...previewCall(current, method, params), revision: current.revision + 1 });
     return agentState.value as T;
   }
-  return await invoke<T>("agent_call", { method, params });
+  return await agentCall<T>(method, params);
 }
 
 /** Says something went wrong; the layout shows it above the page. */
@@ -475,7 +492,7 @@ async function refresh() {
  * in which case the caller records keys in the page itself.
  */
 async function captureKeys(handlers: KeyHandlers, signal?: AbortSignal): Promise<(() => void) | null> {
-  if (!inTauri() || signal?.aborted) return null;
+  if (!inShell() || signal?.aborted) return null;
   keyHandlers = handlers;
   let released = false;
   const release = () => {
@@ -501,12 +518,12 @@ async function captureKeys(handlers: KeyHandlers, signal?: AbortSignal): Promise
 function start() {
   if (started) return;
   started = true;
-  if (!inTauri()) {
+  if (!inShell()) {
     receive(previewState());
     pipeConnected.value = true;
     return;
   }
-  void listen<{ event: string; data: unknown }>("agent://event", ({ payload }) => {
+  onAgentEvent((payload) => {
     if (payload.event === "state") receive(payload.data as AgentState);
     if (payload.event === "key") keyHandlers?.key(payload.data as AgentKeyEvent);
     if (payload.event === "keyCapture" && !(payload.data as { active: boolean }).active) keyHandlers?.ended();
@@ -515,13 +532,13 @@ function start() {
     if (payload.event === "rose") lastRose.value = { ...(payload.data as RoseEvent) };
     if (payload.event === "button" && (payload.data as ButtonEvent).down) lastPress.value = { ...(payload.data as ButtonEvent) };
   });
-  void listen<boolean>("agent://connection", ({ payload }) => {
+  onAgentConnection((payload) => {
     pipeConnected.value = payload;
     revisionFloor = -1;
     if (payload) void refresh();
     else keyHandlers?.ended();
   });
-  void invoke<boolean>("agent_connected").then((connected) => {
+  void agentConnected().then((connected) => {
     pipeConnected.value = connected;
     if (connected) void refresh();
   });

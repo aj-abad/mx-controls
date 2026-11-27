@@ -44,6 +44,7 @@
         :model-value="draft.inherit ? null : selectedClick"
         :label="`${button.name} ${CLICK_NAMES[clickTab]}`"
         :default-label="clickTab === 1 ? defaultLabel : undefined"
+        :default-action="clickTab === 1 ? ownAction : undefined"
         :inherit-label="clickTab === 1 && canInherit ? `Same as ${baseName}` : undefined"
         :inherits="draft.inherit"
         :allow-hold="clickTab === 1 && !waits"
@@ -180,7 +181,7 @@ const emit = defineEmits<{
   openRoses: [id: string | null];
 }>();
 
-/** What the button does without MX Studio, as an action, for the buttons whose own action is known. */
+/** What the button does without ezPz, as an action, for the buttons whose own action is known. */
 const OWN_ACTIONS: Record<string, ButtonAction> = {
   back: { type: "click", mouse: "back" },
   forward: { type: "click", mouse: "forward" },

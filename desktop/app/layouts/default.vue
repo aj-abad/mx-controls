@@ -3,7 +3,7 @@
     <div v-if="isMac" class="h-7 shrink-0" />
     <header class="flex h-12 shrink-0 items-center gap-3 border-b border-line pl-5">
       <div class="flex w-36 shrink-0 items-center gap-2.5">
-        <span class="text-sm font-semibold">MX Studio</span>
+        <span class="text-sm font-semibold">ezPz</span>
       </div>
       <div v-if="device" class="flex min-w-0 items-center gap-3">
         <DeviceInfo :device="device" />
@@ -131,7 +131,7 @@
             <div class="flex max-w-sm flex-col items-center text-center">
               <MouseDrawing :weight="2.5" aria-hidden="true" class="mb-3 w-36 text-ink-3" />
               <h2 class="text-lg font-semibold">
-                {{ pipeConnected ? "Connect your MX Master" : "Starting MX Studio" }}
+                {{ pipeConnected ? "Connect your MX Master" : "Starting ezPz" }}
               </h2>
               <p class="mt-1 text-sm text-ink-3">
                 {{

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>EzPz.Cli</RootNamespace>
+    <AssemblyName>mx</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../EzPz.Core/EzPz.Core.csproj" />
+    <ProjectReference Include="../EzPz.Platform.Windows/EzPz.Platform.Windows.csproj" />
+    <ProjectReference Include="../EzPz.Platform.MacOS/EzPz.Platform.MacOS.csproj" />
+    <Compile Include="../Shared/Platforms.cs" Link="Platforms.cs" />
+  </ItemGroup>
+</Project>

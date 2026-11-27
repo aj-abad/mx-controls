@@ -28,7 +28,7 @@ fn agent_connected(agent: tauri::State<'_, Arc<Agent>>) -> bool {
 pub fn run() {
     // A runner pointed at the wrong binary must fail before connecting to a real agent.
     #[cfg(not(feature = "ui-tests"))]
-    assert!(std::env::var_os("MX_CONTROLS_TEST_RUN").is_none(), "This binary was not built with ui-tests");
+    assert!(std::env::var_os("EZPZ_TEST_RUN").is_none(), "This binary was not built with ui-tests");
     let context = tauri::generate_context!();
     // Validate before Tauri creates any windows or starts the pipe bridge.
     #[cfg(feature = "ui-tests")]
@@ -57,5 +57,5 @@ pub fn run() {
     #[cfg(feature = "ui-tests")]
     let builder = builder.invoke_handler(tauri::generate_handler![agent_call, agent_connected, ui_test::ui_test_environment]);
     builder.run(context)
-        .expect("error while running MX Studio");
+        .expect("error while running ezPz");
 }

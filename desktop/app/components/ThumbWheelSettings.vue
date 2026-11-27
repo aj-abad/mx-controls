@@ -43,7 +43,7 @@
       :label="draft.mode === 'scroll' ? 'Scroll speed' : 'Action rate'"
       :description="
         draft.mode === 'scroll'
-          ? 'Speeds other than 100% only apply while MX Studio runs in the background.'
+          ? 'Speeds other than 100% only apply while ezPz runs in the background.'
           : 'At 100%, an action runs once per notch.'
       "
       :default-value="100"

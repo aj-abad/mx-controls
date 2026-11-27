@@ -7,12 +7,14 @@ import type {
   GesturePreset,
   Macro,
   MacroUse,
+  NavigationKeys,
   ProfileSummary,
   ProgramInfo,
   RoseItem,
   RoseMenu,
   ThumbWheelSettings,
 } from "~/composables/useAgent";
+import { DEFAULT_NAVIGATION_KEYS } from "~/composables/useAgent";
 
 const step = (id: string, more: Partial<ButtonAction> = {}): ButtonAction => ({ ...presetById(id)!.action, ...more });
 const IS_MAC = navigator.userAgent.includes("Mac");
@@ -256,6 +258,7 @@ export function previewState(): AgentState {
         "lockScreen", "fileManager", "settings", "calculator", "minimizeWindow", "maximizeWindow", "fullScreen", "closeWindow", "micMute"],
     opensApps: true,
     runsShortcuts: IS_MAC,
+    navigationKeys: IS_MAC ? DEFAULT_NAVIGATION_KEYS : null,
     device: {
       name: "MX Master 4 for Mac",
       productId: "B042",
@@ -372,6 +375,12 @@ function apply(state: AgentState, method: string, params: Record<string, unknown
       return { ...state, startAtLogin: params.enabled as boolean };
     case "setMultiClickMs":
       return { ...state, multiClickMs: params.ms as number };
+    case "setNavigationKeys": {
+      if (!state.navigationKeys) return state;
+      const button = params.button as keyof NavigationKeys;
+      const keys = (params.keys as string[] | null) ?? DEFAULT_NAVIGATION_KEYS[button];
+      return { ...state, navigationKeys: { ...state.navigationKeys, [button]: keys } };
+    }
     case "setHostShortcut": {
       const others = state.hostShortcuts.filter((s) => s.host !== params.host);
       const keys = params.keys as string[] | null;

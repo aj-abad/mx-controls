@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "MX Studio",
+  "productName": "ezPz",
   "version": "0.1.0",
-  "identifier": "app.mxcontrols.desktop",
+  "identifier": "app.ezpz.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://127.0.0.1:3000",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "MX Studio",
+        "title": "ezPz",
         "width": 1124,
         "height": 632,
         "resizable": false,
@@ -45,12 +45,13 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "binaries/mx-agent"
+      "binaries/ezpz-agent"
     ],
     "macOS": {
       "signingIdentity": "-",
       "files": {
-        "Resources/Assets.car": "target/mac-icon/Assets.car"
+        "Resources/Assets.car": "target/mac-icon/Assets.car",
+        "Helpers/ezPz Agent.app": "target/agent-app/ezPz Agent.app"
       }
     },
     "windows": {

@@ -6,12 +6,12 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 
-const AGENT: &[u8] = include_bytes!(env!("MX_EMBEDDED_AGENT"));
+const AGENT: &[u8] = include_bytes!(env!("EZPZ_EMBEDDED_AGENT"));
 
-/// `%LOCALAPPDATA%\MxControls\mx-agent.exe`. Not the installer's `MX Studio` folder, so the two don't mix.
+/// `%LOCALAPPDATA%\EzPz\ezpz-agent.exe`. Not the installer's `ezPz` folder, so the two don't mix.
 pub fn path() -> PathBuf {
     let base = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    base.join("MxControls").join(if cfg!(windows) { "mx-agent.exe" } else { "mx-agent" })
+    base.join("EzPz").join(if cfg!(windows) { "ezpz-agent.exe" } else { "ezpz-agent" })
 }
 
 /// Puts this build's agent in place unless it's there already. Blocks, and runs before the app first connects, so

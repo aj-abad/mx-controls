@@ -2,16 +2,16 @@
 use serde_json::{json, Value};
 
 pub fn pipe_name() -> String {
-    let run = std::env::var("MX_CONTROLS_TEST_RUN").expect("UI tests require a run token");
+    let run = std::env::var("EZPZ_TEST_RUN").expect("UI tests require a run token");
     assert!(run.len() == 36 && run.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-'), "Invalid UI-test run token");
-    let pipe = std::env::var("MX_CONTROLS_TEST_PIPE").expect("UI tests require an isolated pipe");
-    assert_eq!(pipe, format!("mx-controls-ui-test-{run}"), "Refusing a non-test agent pipe");
+    let pipe = std::env::var("EZPZ_TEST_PIPE").expect("UI tests require an isolated pipe");
+    assert_eq!(pipe, format!("ezpz-ui-test-{run}"), "Refusing a non-test agent pipe");
     pipe
 }
 
 pub fn validate(config: &tauri::Config) {
     pipe_name();
-    assert_eq!(config.identifier, "app.mxcontrols.desktop.tests");
+    assert_eq!(config.identifier, "app.ezpz.desktop.tests");
     assert_eq!(config.app.windows.len(), 1);
     let window = &config.app.windows[0];
     assert!(!window.visible && !window.focus && !window.focusable && window.skip_taskbar,
@@ -23,7 +23,7 @@ pub fn validate(config: &tauri::Config) {
 pub fn ui_test_environment(window: tauri::WebviewWindow) -> Result<Value, String> {
     let size = window.inner_size().map_err(|e| e.to_string())?;
     Ok(json!({
-        "run": std::env::var("MX_CONTROLS_TEST_RUN").unwrap(),
+        "run": std::env::var("EZPZ_TEST_RUN").unwrap(),
         "pipe": pipe_name(),
         "hardwareAgentEnabled": false,
         "visible": window.is_visible().map_err(|e| e.to_string())?,

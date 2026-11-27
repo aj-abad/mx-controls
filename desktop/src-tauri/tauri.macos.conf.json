@@ -4,7 +4,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "MX Studio",
+        "title": "ezPz",
         "width": 1124,
         "height": 660,
         "resizable": false,
@@ -15,5 +15,8 @@
         "windowEffects": { "effects": ["liquidGlassRegular", "sidebar"] }
       }
     ]
+  },
+  "bundle": {
+    "externalBin": []
   }
 }

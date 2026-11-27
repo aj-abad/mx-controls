@@ -10,8 +10,8 @@ test("test shell rejects the real agent pipe before creating a window", async ({
     stdio: ["ignore", "pipe", "pipe"],
     env: {
       ...process.env,
-      MX_CONTROLS_TEST_RUN: randomUUID(),
-      MX_CONTROLS_TEST_PIPE: "mx-controls-agent",
+      EZPZ_TEST_RUN: randomUUID(),
+      EZPZ_TEST_PIPE: "ezpz-agent",
       WEBVIEW2_USER_DATA_FOLDER: testInfo.outputPath("unused-profile"),
     },
   });

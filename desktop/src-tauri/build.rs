@@ -5,9 +5,9 @@ fn main() {
         let extension = if target.contains("windows") { ".exe" } else { "" };
         let agent = std::path::Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap())
             .join("binaries")
-            .join(format!("mx-agent-{target}{extension}"));
+            .join(format!("ezpz-agent-{target}{extension}"));
         println!("cargo:rerun-if-changed={}", agent.display());
-        println!("cargo:rustc-env=MX_EMBEDDED_AGENT={}", agent.display());
+        println!("cargo:rustc-env=EZPZ_EMBEDDED_AGENT={}", agent.display());
     }
     tauri_build::build()
 }

@@ -52,14 +52,14 @@ export function reorderMacroSteps(steps: MacroStep[], selected: number[], bounda
 
 /** A bounded, versioned clipboard format; arbitrary objects are never used as macro steps. */
 export function encodeMacroSteps(steps: MacroStep[]) {
-  return JSON.stringify({ format: "mx-controls/steps", version: 1, steps });
+  return JSON.stringify({ format: "ezpz/steps", version: 1, steps });
 }
 
 export function decodeMacroSteps(text: string): MacroStep[] | null {
   try {
     const value = JSON.parse(text);
     if (
-      value?.format !== "mx-controls/steps" ||
+      value?.format !== "ezpz/steps" ||
       value.version !== 1 ||
       !Array.isArray(value.steps) ||
       !value.steps.length ||

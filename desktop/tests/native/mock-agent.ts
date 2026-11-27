@@ -41,7 +41,7 @@ export class MockAgent {
   });
 
   async listen(pipe: string) {
-    if (!/^mx-controls-ui-test-[a-f0-9-]{36}$/.test(pipe)) throw new Error("Refusing non-test pipe");
+    if (!/^ezpz-ui-test-[a-f0-9-]{36}$/.test(pipe)) throw new Error("Refusing non-test pipe");
     this.server.listen(`\\\\.\\pipe\\${pipe}`);
     await once(this.server, "listening");
   }

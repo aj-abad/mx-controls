@@ -1,5 +1,5 @@
 {
-  "name": "mx-controls-desktop",
+  "name": "ezpz-desktop",
   "private": true,
   "type": "module",
   "engines": {
@@ -16,6 +16,8 @@
     "app": "pnpm agent && tauri dev",
     "build": "tauri build",
     "install-app": "node scripts/install-app.mjs",
+    "shell": "node scripts/shell.mjs",
+    "ui": "node scripts/ui.mjs",
     "postinstall": "nuxt prepare",
     "typecheck": "nuxt typecheck",
     "test:native:build": "node scripts/build-native-tests.mjs",

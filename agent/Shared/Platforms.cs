@@ -1,8 +1,8 @@
-using MxControls.Platform;
-using MxControls.Platform.MacOS;
-using MxControls.Platform.Windows;
+using EzPz.Platform;
+using EzPz.Platform.MacOS;
+using EzPz.Platform.Windows;
 
-namespace MxControls;
+namespace EzPz;
 
 internal static class Platforms
 {
@@ -12,6 +12,6 @@ internal static class Platforms
             return new WindowsPlatform();
         if (OperatingSystem.IsMacOS())
             return new MacPlatform();
-        throw new PlatformNotSupportedException("MX Studio has Windows and macOS backends so far.");
+        throw new PlatformNotSupportedException("ezPz has Windows and macOS backends so far.");
     }
 }

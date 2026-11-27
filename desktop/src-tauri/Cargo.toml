@@ -1,10 +1,10 @@
 [package]
-name = "mx-controls"
+name = "ezpz"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "mx_controls_lib"
+name = "ezpz_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
